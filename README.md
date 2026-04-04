@@ -273,7 +273,11 @@ Before that workflow is truly production-ready, you should still verify:
 
 - the runner has all OS-specific Tauri prerequisites
 - your FFmpeg binaries are present during the build
-- signing and notarization are configured if you want polished trust prompts on macOS and Windows
+-- signing and notarization are configured if you want polished trust prompts on macOS and Windows
+
+### Tailwind update
+
+The UI is entirely built with Tailwind CSS v4. The plugin is configured in `vite.config.ts`, and the only global stylesheet is `src/styles.css`, which now just imports Tailwind base styles. Keep future styling changes limited to classes in component templates or the Tailwind layer.
 
 ## How it works
 

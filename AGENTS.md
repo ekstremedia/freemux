@@ -156,6 +156,8 @@ The user explicitly wants:
 - moved progress into the `Convert` tab and placed it above the main options
 - made output file entry editable directly, not browse-only
 
+The entire UI now uses Tailwind v4 utility classes; `src/styles.css` just imports Tailwind base layers and the Vite config registers `@tailwindcss/vite`. Keep styling updates within the component templates and this small CSS file.
+
 ### Current UI files most likely to change next
 
 - `src/App.vue`
@@ -279,14 +281,17 @@ make dev
 Current tests cover:
 
 - FFmpeg argument generation
-- basic store behavior
+- store behavior
+- Vue convert/progress components
 
 Tests are in:
 
 - `src/tests/ffmpegArgs.spec.ts`
 - `src/tests/converterStore.spec.ts`
+- `src/tests/ConversionProgressPanel.spec.ts`
+- `src/tests/ConversionOptionsPanel.spec.ts`
 
-If you change command generation or profile behavior, update/add tests.
+If you change command generation or profile behavior, update tests accordingly.
 
 ## FFmpeg distribution strategy
 
