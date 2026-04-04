@@ -72,4 +72,20 @@ describe("converter store", () => {
     expect(store.state.conversionProgress?.phase).toBe("completed");
     expect(store.state.conversionProgress?.percent).toBe(100);
   });
+
+  it("duplicates and saves profiles with visible action messages", async () => {
+    const store = createConverterStore(createClientStub());
+    await store.initialize();
+
+    await store.duplicateCurrentProfile();
+    expect(store.state.selectedProfileId).not.toBeNull();
+    expect(store.state.profileActionMessage).toContain("Duplicated profile");
+    expect(store.state.profiles).toHaveLength(2);
+
+    await store.saveCurrentProfile(true);
+    expect(store.state.profileActionMessage).toContain("Saved as new profile");
+
+    await store.saveCurrentProfile(false);
+    expect(store.state.profileActionMessage).toContain("Saved profile");
+  });
 });

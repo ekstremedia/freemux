@@ -7,6 +7,7 @@ const props = defineProps<{
   profile: ConversionProfile | null;
   outputPath: string;
   isConverting: boolean;
+  profileActionMessage: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -88,20 +89,21 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
 </script>
 
 <template>
-  <section class="panel">
-    <div class="panel__header">
+  <section class="overflow-hidden rounded-[24px] border border-amber-200/15 bg-zinc-900/80 shadow-[0_24px_60px_rgba(0,0,0,0.32)] backdrop-blur-xl">
+    <div class="px-5 pt-5">
       <div>
-        <h2 class="panel__title">Convert</h2>
-        <p class="panel__subtitle">Choose a profile, set the output file, then run the conversion.</p>
+        <h2 class="m-0 text-lg font-semibold text-stone-100">Convert</h2>
+        <p class="mt-1 text-sm text-stone-400">Choose a profile, set the output file, then run the conversion.</p>
       </div>
     </div>
 
-    <div v-if="profile" class="panel__body stack">
-      <div class="convert-toolbar">
-        <div class="grid-2">
-          <label>
+    <div v-if="profile" class="grid gap-4 p-5">
+      <div class="grid gap-4 rounded-2xl border border-white/5 bg-white/3 p-4">
+        <div class="grid gap-4 xl:grid-cols-2">
+          <label class="grid gap-1.5 text-sm text-stone-400">
             Profile
             <select
+              class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
               :value="selectedProfileId ?? ''"
               @change="$emit('selectProfile', ($event.target as HTMLSelectElement).value)"
             >
@@ -115,27 +117,28 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
             </select>
           </label>
 
-          <label>
+          <label class="grid gap-1.5 text-sm text-stone-400">
             Output file
-            <div class="inline-input">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
               <input
+                class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-amber-300/30"
                 :value="outputPath"
                 placeholder="/path/to/output.mov"
                 @input="$emit('updateOutputPath', ($event.target as HTMLInputElement).value)"
               />
-              <button type="button" class="secondary" @click="$emit('pickOutput')">Browse</button>
+              <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('pickOutput')">Browse</button>
             </div>
           </label>
         </div>
 
-        <div class="row">
-          <button type="button" class="secondary" @click="$emit('createProfile')">New</button>
-          <button type="button" class="secondary" @click="$emit('duplicateProfile')">Duplicate</button>
-          <button type="button" class="secondary" @click="$emit('saveProfile', false)">Save</button>
-          <button type="button" class="secondary" @click="$emit('saveProfile', true)">Save as new</button>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('createProfile')">New</button>
+          <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('duplicateProfile')">Duplicate</button>
+          <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('saveProfile', false)">Save</button>
+          <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('saveProfile', true)">Save as new</button>
           <button
             type="button"
-            class="danger"
+            class="rounded-xl border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm font-medium text-rose-200 transition hover:border-rose-300/35 hover:bg-rose-300/14 disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="!selectedProfileId"
             @click="selectedProfileId && $emit('deleteProfile', selectedProfileId)"
           >
@@ -143,24 +146,39 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           </button>
           <button
             type="button"
-            class="convert-button"
+            class="ml-auto rounded-xl border border-amber-300/25 bg-gradient-to-b from-amber-300/25 to-amber-400/10 px-5 py-3 text-sm font-semibold text-stone-100 transition hover:border-amber-300/35 hover:from-amber-300/35 disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="!profile || !outputPath || isConverting"
             @click="$emit('convert')"
           >
             {{ isConverting ? "Converting..." : "Convert file" }}
           </button>
         </div>
+
+        <p
+          v-if="profileActionMessage"
+          class="m-0 rounded-xl border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-200"
+        >
+          {{ profileActionMessage }}
+        </p>
       </div>
 
-      <div class="grid-2">
-        <label>
+      <div class="grid gap-4 xl:grid-cols-2">
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Profile name
-          <input :value="profile.name" @input="update('name', ($event.target as HTMLInputElement).value)" />
+          <input
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
+            :value="profile.name"
+            @input="update('name', ($event.target as HTMLInputElement).value)"
+          />
         </label>
 
-        <label>
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Container
-          <select :value="profile.container" @change="update('container', ($event.target as HTMLSelectElement).value)">
+          <select
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
+            :value="profile.container"
+            @change="update('container', ($event.target as HTMLSelectElement).value)"
+          >
             <option value="mp4">mp4</option>
             <option value="mkv">mkv</option>
             <option value="mov">mov</option>
@@ -170,10 +188,11 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
         </label>
       </div>
 
-      <div class="grid-3">
-        <label>
+      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Video codec
           <select
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             :value="profile.video.codec"
             @change="updateVideo('codec', ($event.target as HTMLSelectElement).value)"
           >
@@ -184,9 +203,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           </select>
         </label>
 
-        <label>
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Video bitrate (kbps)
           <input
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             type="number"
             min="0"
             :value="profile.video.bitrateKbps ?? ''"
@@ -201,9 +221,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           />
         </label>
 
-        <label>
+        <label class="grid gap-1.5 text-sm text-stone-400">
           CRF
           <input
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             type="number"
             min="0"
             max="51"
@@ -220,10 +241,11 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
         </label>
       </div>
 
-      <div class="grid-3">
-        <label>
+      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Preset
           <select
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             :value="profile.video.preset ?? ''"
             @change="
               updateVideo(
@@ -240,9 +262,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           </select>
         </label>
 
-        <label>
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Frame rate
           <input
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             type="number"
             min="1"
             step="0.01"
@@ -258,9 +281,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           />
         </label>
 
-        <label>
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Pixel format
           <input
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             :value="profile.video.pixelFormat ?? ''"
             @input="
               updateVideo(
@@ -272,10 +296,11 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
         </label>
       </div>
 
-      <div class="grid-3">
-        <label>
+      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Resolution mode
           <select
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             :value="profile.video.resolution.mode"
             @change="
               updateResolution(
@@ -289,9 +314,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           </select>
         </label>
 
-        <label>
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Width
           <input
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             type="number"
             min="0"
             :value="profile.video.resolution.width ?? ''"
@@ -306,9 +332,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           />
         </label>
 
-        <label>
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Height
           <input
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             type="number"
             min="0"
             :value="profile.video.resolution.height ?? ''"
@@ -324,10 +351,11 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
         </label>
       </div>
 
-      <div class="grid-3">
-        <label>
+      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Audio codec
           <select
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             :value="profile.audio.codec"
             @change="updateAudio('codec', ($event.target as HTMLSelectElement).value)"
           >
@@ -340,9 +368,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           </select>
         </label>
 
-        <label>
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Audio bitrate (kbps)
           <input
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             type="number"
             min="0"
             :value="profile.audio.bitrateKbps ?? ''"
@@ -357,9 +386,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           />
         </label>
 
-        <label>
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Channels
           <input
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             type="number"
             min="1"
             max="8"
@@ -376,10 +406,11 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
         </label>
       </div>
 
-      <div class="grid-2">
-        <label>
+      <div class="grid gap-4 xl:grid-cols-2">
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Sample rate
           <input
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             type="number"
             min="8000"
             step="1000"
@@ -395,9 +426,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           />
         </label>
 
-        <label>
+        <label class="grid gap-1.5 text-sm text-stone-400">
           Extra FFmpeg args
           <textarea
+            class="min-h-24 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-amber-300/30"
             :value="profile.extraArgs.join(' ')"
             @input="
               update(
@@ -411,9 +443,9 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
         </label>
       </div>
 
-      <label>
+      <label class="flex items-center gap-3 text-sm text-stone-300">
         <input
-          style="width: auto; margin-right: 0.5rem"
+          class="h-4 w-4 rounded border-white/15 bg-white/5 text-amber-300"
           type="checkbox"
           :checked="profile.overwriteOutput"
           @change="update('overwriteOutput', ($event.target as HTMLInputElement).checked)"
@@ -422,8 +454,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
       </label>
     </div>
 
-    <div v-else class="panel__body">
-      <div class="empty-state">Select or create a profile to start editing conversion options.</div>
+    <div v-else class="p-5">
+      <div class="rounded-2xl border border-dashed border-amber-200/15 px-4 py-5 text-sm text-stone-400">
+        Select or create a profile to start editing conversion options.
+      </div>
     </div>
   </section>
 </template>

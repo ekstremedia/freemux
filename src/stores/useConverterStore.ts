@@ -23,6 +23,7 @@ interface ConverterState {
   isProbing: boolean;
   isConverting: boolean;
   conversionProgress: ConversionProgress | null;
+  profileActionMessage: string | null;
 }
 
 export function createConverterStore(client: DesktopClient = tauriDesktopClient) {
@@ -39,6 +40,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     isProbing: false,
     isConverting: false,
     conversionProgress: null,
+    profileActionMessage: null,
   });
 
   const currentProfile = computed(() =>
@@ -107,6 +109,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
 
   function selectProfile(profileId: string) {
     state.selectedProfileId = profileId;
+    state.profileActionMessage = null;
     const profile = state.profiles.find((item) => item.id === profileId);
 
     if (profile && state.inputPath) {
@@ -116,28 +119,36 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
 
   function updateCurrentProfile(profile: ConversionProfile) {
     state.profiles = upsertProfile(state.profiles, profile);
+    state.profileActionMessage = null;
 
     if (state.inputPath) {
       state.outputPath = suggestOutputPath(state.inputPath, profile.container);
     }
   }
 
-  function createNewProfile() {
+  async function createNewProfile() {
     const profile = createDefaultProfile({
       name: "New profile",
     });
-    state.profiles = upsertProfile(state.profiles, profile);
-    state.selectedProfileId = profile.id;
+    const saved = await client.saveProfile(profile);
+    state.profiles = upsertProfile(state.profiles, saved);
+    state.selectedProfileId = saved.id;
+    state.profileActionMessage = `Created profile "${saved.name}".`;
   }
 
-  function duplicateCurrentProfile() {
+  async function duplicateCurrentProfile() {
     if (!currentProfile.value) {
       return;
     }
 
-    const copy = cloneProfile(currentProfile.value);
-    state.profiles = upsertProfile(state.profiles, copy);
-    state.selectedProfileId = copy.id;
+    const copy = cloneProfile(
+      currentProfile.value,
+      createUniqueProfileName(`${currentProfile.value.name} Copy`, state.profiles),
+    );
+    const saved = await client.saveProfile(copy);
+    state.profiles = upsertProfile(state.profiles, saved);
+    state.selectedProfileId = saved.id;
+    state.profileActionMessage = `Duplicated profile as "${saved.name}".`;
   }
 
   async function saveCurrentProfile(saveAsNew = false) {
@@ -152,12 +163,19 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     const saved = await client.saveProfile(profileToSave);
     state.profiles = upsertProfile(state.profiles, saved);
     state.selectedProfileId = saved.id;
+    state.profileActionMessage = saveAsNew
+      ? `Saved as new profile "${saved.name}".`
+      : `Saved profile "${saved.name}".`;
   }
 
   async function deleteProfile(profileId: string) {
+    const deletedProfile = state.profiles.find((profile) => profile.id === profileId);
     await client.deleteProfile(profileId);
     state.profiles = state.profiles.filter((profile) => profile.id !== profileId);
     state.selectedProfileId = state.profiles[0]?.id ?? null;
+    state.profileActionMessage = deletedProfile
+      ? `Deleted profile "${deletedProfile.name}".`
+      : "Deleted profile.";
   }
 
   async function runConversion() {

@@ -147,9 +147,41 @@ export function createStarterProfiles(): ConversionProfile[] {
 
 export function cloneProfile(profile: ConversionProfile, name?: string): ConversionProfile {
   return {
-    ...structuredClone(profile),
+    ...cloneProfileData(profile),
     id: crypto.randomUUID(),
     name: name ?? `${profile.name} Copy`,
+  };
+}
+
+function cloneProfileData(profile: ConversionProfile): Omit<ConversionProfile, "id" | "name"> & {
+  id: string;
+  name: string;
+} {
+  return {
+    id: profile.id,
+    name: profile.name,
+    container: profile.container,
+    video: {
+      codec: profile.video.codec,
+      bitrateKbps: profile.video.bitrateKbps,
+      crf: profile.video.crf,
+      preset: profile.video.preset,
+      frameRate: profile.video.frameRate,
+      pixelFormat: profile.video.pixelFormat,
+      resolution: {
+        mode: profile.video.resolution.mode,
+        width: profile.video.resolution.width,
+        height: profile.video.resolution.height,
+      },
+    },
+    audio: {
+      codec: profile.audio.codec,
+      bitrateKbps: profile.audio.bitrateKbps,
+      channels: profile.audio.channels,
+      sampleRate: profile.audio.sampleRate,
+    },
+    extraArgs: [...profile.extraArgs],
+    overwriteOutput: profile.overwriteOutput,
   };
 }
 

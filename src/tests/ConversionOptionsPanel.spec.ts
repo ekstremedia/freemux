@@ -19,6 +19,7 @@ describe("ConversionOptionsPanel", () => {
         profile,
         outputPath: "/tmp/output.mp4",
         isConverting: false,
+        profileActionMessage: null,
       },
     });
   }
