@@ -2,12 +2,21 @@
 import type { ConversionProfile, ResolutionMode } from "@/domain/conversion";
 
 const props = defineProps<{
+  profiles: ConversionProfile[];
+  selectedProfileId: string | null;
   profile: ConversionProfile | null;
   outputPath: string;
   isConverting: boolean;
 }>();
 
 const emit = defineEmits<{
+  selectProfile: [profileId: string];
+  createProfile: [];
+  saveProfile: [saveAsNew?: boolean];
+  deleteProfile: [profileId: string];
+  duplicateProfile: [];
+  pickOutput: [];
+  updateOutputPath: [outputPath: string];
   updateProfile: [profile: ConversionProfile];
   convert: [];
 }>();
@@ -82,19 +91,67 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
   <section class="panel">
     <div class="panel__header">
       <div>
-        <h2 class="panel__title">Conversion Options</h2>
-        <p class="panel__subtitle">
-          Keep the conversion planning in TypeScript so profiles and command generation stay easy
-          to reason about and test.
-        </p>
+        <h2 class="panel__title">Convert</h2>
+        <p class="panel__subtitle">Choose a profile, set the output file, then run the conversion.</p>
       </div>
-
-      <button type="button" :disabled="!profile || !outputPath || isConverting" @click="$emit('convert')">
-        {{ isConverting ? "Converting..." : "Convert file" }}
-      </button>
     </div>
 
     <div v-if="profile" class="panel__body stack">
+      <div class="convert-toolbar">
+        <div class="grid-2">
+          <label>
+            Profile
+            <select
+              :value="selectedProfileId ?? ''"
+              @change="$emit('selectProfile', ($event.target as HTMLSelectElement).value)"
+            >
+              <option
+                v-for="item in profiles"
+                :key="item.id"
+                :value="item.id"
+              >
+                {{ item.name }}
+              </option>
+            </select>
+          </label>
+
+          <label>
+            Output file
+            <div class="inline-input">
+              <input
+                :value="outputPath"
+                placeholder="/path/to/output.mov"
+                @input="$emit('updateOutputPath', ($event.target as HTMLInputElement).value)"
+              />
+              <button type="button" class="secondary" @click="$emit('pickOutput')">Browse</button>
+            </div>
+          </label>
+        </div>
+
+        <div class="row">
+          <button type="button" class="secondary" @click="$emit('createProfile')">New</button>
+          <button type="button" class="secondary" @click="$emit('duplicateProfile')">Duplicate</button>
+          <button type="button" class="secondary" @click="$emit('saveProfile', false)">Save</button>
+          <button type="button" class="secondary" @click="$emit('saveProfile', true)">Save as new</button>
+          <button
+            type="button"
+            class="danger"
+            :disabled="!selectedProfileId"
+            @click="selectedProfileId && $emit('deleteProfile', selectedProfileId)"
+          >
+            Delete
+          </button>
+          <button
+            type="button"
+            class="convert-button"
+            :disabled="!profile || !outputPath || isConverting"
+            @click="$emit('convert')"
+          >
+            {{ isConverting ? "Converting..." : "Convert file" }}
+          </button>
+        </div>
+      </div>
+
       <div class="grid-2">
         <label>
           Profile name
@@ -277,6 +334,7 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
             <option value="aac">aac</option>
             <option value="libopus">libopus</option>
             <option value="mp3">mp3</option>
+            <option value="pcm_s16le">pcm_s16le</option>
             <option value="copy">copy</option>
             <option value="none">none</option>
           </select>

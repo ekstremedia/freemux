@@ -73,6 +73,30 @@ export function createStarterProfiles(): ConversionProfile[] {
     createDefaultProfile(),
     createDefaultProfile({
       id: crypto.randomUUID(),
+      name: "Resolve edit MOV (copy video + PCM audio tracks)",
+      container: "mov",
+      video: {
+        codec: "copy",
+        bitrateKbps: null,
+        crf: null,
+        preset: null,
+        frameRate: null,
+        pixelFormat: null,
+        resolution: {
+          mode: "source",
+          width: null,
+          height: null,
+        },
+      },
+      audio: {
+        codec: "pcm_s16le",
+        bitrateKbps: null,
+        channels: null,
+        sampleRate: null,
+      },
+    }),
+    createDefaultProfile({
+      id: crypto.randomUUID(),
       name: "HEVC archive",
       video: {
         codec: "libx265",

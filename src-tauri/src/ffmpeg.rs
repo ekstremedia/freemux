@@ -332,6 +332,7 @@ fn build_ffmpeg_args(input_path: &str, output_path: &str, profile: &ConversionPr
         OsString::from(input_path),
     ];
 
+    apply_map_args(&mut args, &profile.container, &profile.audio);
     apply_video_args(&mut args, &profile.container, &profile.video);
     apply_audio_args(&mut args, &profile.audio);
 
@@ -344,6 +345,25 @@ fn build_ffmpeg_args(input_path: &str, output_path: &str, profile: &ConversionPr
     args.push(OsString::from("-nostats"));
     args.push(OsString::from(output_path));
     args
+}
+
+fn apply_map_args(args: &mut Vec<OsString>, container: &str, audio: &AudioSettings) {
+    if audio.codec == "none" {
+        args.push(OsString::from("-map"));
+        args.push(OsString::from("0:v"));
+        return;
+    }
+
+    if container == "mp3" {
+        args.push(OsString::from("-map"));
+        args.push(OsString::from("0:a"));
+        return;
+    }
+
+    args.push(OsString::from("-map"));
+    args.push(OsString::from("0:v"));
+    args.push(OsString::from("-map"));
+    args.push(OsString::from("0:a"));
 }
 
 fn update_progress_from_line(progress: &mut ConversionProgress, line: &str) {

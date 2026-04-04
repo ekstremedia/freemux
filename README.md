@@ -132,6 +132,12 @@ Practical recommendation:
 npm install
 ```
 
+Or use:
+
+```bash
+make install
+```
+
 ### 3. Make FFmpeg tools available
 
 Choose one:
@@ -155,6 +161,48 @@ Add the binaries under `src-tauri/resources/bin/<platform>/...` as shown above.
 
 ```bash
 npm run tauri dev
+```
+
+Or use:
+
+```bash
+make dev
+```
+
+## Developer helpers
+
+This repo includes a native-first `Makefile` and small helper scripts instead of Docker-based development.
+
+### Make targets
+
+```bash
+make help
+make bootstrap
+make install
+make check
+make ffmpeg-check
+make test
+make build
+make dev
+make tauri-build
+```
+
+### Scripts
+
+```text
+scripts/bootstrap-debian.sh
+scripts/dev-check.sh
+scripts/ffmpeg-check.sh
+```
+
+On Debian, the fastest setup path is:
+
+```bash
+make bootstrap
+make install
+make check
+make ffmpeg-check
+make dev
 ```
 
 ## Build documentation

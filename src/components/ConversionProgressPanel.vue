@@ -13,9 +13,7 @@ defineProps<{
     <div class="panel__header">
       <div>
         <h2 class="panel__title">Conversion Progress</h2>
-        <p class="panel__subtitle">
-          Live updates are emitted from the native host while FFmpeg is running.
-        </p>
+        <p class="panel__subtitle">Live progress during the active FFmpeg job.</p>
       </div>
       <span class="pill" :class="isConverting ? 'status-warn' : 'status-ok'">
         {{ isConverting ? "Running" : progress?.phase ?? "idle" }}

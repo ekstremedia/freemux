@@ -84,6 +84,10 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     }
   }
 
+  function setOutputPath(outputPath: string) {
+    state.outputPath = outputPath;
+  }
+
   async function probeInput() {
     if (!state.inputPath) {
       return;
@@ -142,7 +146,9 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
       return;
     }
 
-    const profileToSave = saveAsNew ? cloneProfile(profile) : profile;
+    const profileToSave = saveAsNew
+      ? cloneProfile(profile, createUniqueProfileName(`${profile.name} Copy`, state.profiles))
+      : profile;
     const saved = await client.saveProfile(profileToSave);
     state.profiles = upsertProfile(state.profiles, saved);
     state.selectedProfileId = saved.id;
@@ -228,6 +234,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     initialize,
     pickInputFile,
     pickOutputFile,
+    setOutputPath,
     probeInput,
     selectProfile,
     updateCurrentProfile,
@@ -238,4 +245,21 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     runConversion,
     dispose,
   };
+}
+
+function createUniqueProfileName(baseName: string, profiles: ConversionProfile[]): string {
+  const existingNames = new Set(profiles.map((profile) => profile.name));
+  if (!existingNames.has(baseName)) {
+    return baseName;
+  }
+
+  let index = 2;
+  let candidate = `${baseName} ${index}`;
+
+  while (existingNames.has(candidate)) {
+    index += 1;
+    candidate = `${baseName} ${index}`;
+  }
+
+  return candidate;
 }

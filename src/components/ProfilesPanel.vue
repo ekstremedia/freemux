@@ -20,9 +20,7 @@ defineEmits<{
     <div class="panel__header">
       <div>
         <h2 class="panel__title">Profiles</h2>
-        <p class="panel__subtitle">
-          Save, load, edit, and duplicate conversion presets as JSON-backed profiles.
-        </p>
+        <p class="panel__subtitle">Saved presets for repeatable conversions.</p>
       </div>
 
       <div class="row">

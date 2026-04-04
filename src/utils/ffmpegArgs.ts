@@ -10,6 +10,7 @@ export function buildFfmpegArgs(
   }
 
   const args = [profile.overwriteOutput ? "-y" : "-n", "-i", inputPath];
+  args.push(...buildMapArgs(profile));
 
   if (profile.container === "mp3") {
     args.push("-vn");
@@ -82,6 +83,18 @@ export function buildFfmpegCommandPreview(
 ): string {
   const args = buildFfmpegArgs(inputPath, outputPath, profile);
   return args.length ? ["ffmpeg", ...args].map(shellQuote).join(" ") : "Select a file and profile.";
+}
+
+function buildMapArgs(profile: ConversionProfile): string[] {
+  if (profile.audio.codec === "none") {
+    return ["-map", "0:v"];
+  }
+
+  if (profile.container === "mp3") {
+    return ["-map", "0:a"];
+  }
+
+  return ["-map", "0:v", "-map", "0:a"];
 }
 
 function shellQuote(value: string) {

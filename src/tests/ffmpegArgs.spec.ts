@@ -7,6 +7,9 @@ describe("buildFfmpegArgs", () => {
     const profile = createDefaultProfile();
     const args = buildFfmpegArgs("/tmp/input.mov", "/tmp/output.mp4", profile);
 
+    expect(args).toContain("-map");
+    expect(args).toContain("0:v");
+    expect(args).toContain("0:a");
     expect(args).toContain("-c:v");
     expect(args).toContain("libx264");
     expect(args).toContain("-c:a");
@@ -33,6 +36,41 @@ describe("buildFfmpegArgs", () => {
     });
 
     const args = buildFfmpegArgs("/tmp/input.mp4", "/tmp/output.mp3", profile);
+    expect(args).toContain("0:a");
     expect(args).toContain("-vn");
+  });
+
+  it("supports a Resolve-friendly mov profile with copied video and pcm audio", () => {
+    const profile = createDefaultProfile({
+      container: "mov",
+      video: {
+        codec: "copy",
+        bitrateKbps: null,
+        crf: null,
+        preset: null,
+        frameRate: null,
+        pixelFormat: null,
+        resolution: {
+          mode: "source",
+          width: null,
+          height: null,
+        },
+      },
+      audio: {
+        codec: "pcm_s16le",
+        bitrateKbps: null,
+        channels: null,
+        sampleRate: null,
+      },
+    });
+
+    const args = buildFfmpegArgs("/tmp/input.mkv", "/tmp/output.mov", profile);
+    expect(args).toContain("-map");
+    expect(args).toContain("0:v");
+    expect(args).toContain("0:a");
+    expect(args).toContain("-c:v");
+    expect(args).toContain("copy");
+    expect(args).toContain("-c:a");
+    expect(args).toContain("pcm_s16le");
   });
 });
