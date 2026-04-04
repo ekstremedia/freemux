@@ -13,7 +13,7 @@ export default defineConfig(async () => ({
     },
   },
   test: {
-    environment: "node",
+    environment: "jsdom",
     globals: true,
   },
   clearScreen: false,
