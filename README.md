@@ -2,6 +2,8 @@
 
 FreeMux is a cross-platform desktop FFmpeg converter built with Tauri 2, Vue 3, and TypeScript.
 
+License: MIT. See `LICENSE`.
+
 The current starter already supports:
 
 - Opening a media file and probing it with `ffprobe`

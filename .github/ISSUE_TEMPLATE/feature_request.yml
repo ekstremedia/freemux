@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest an improvement for FreeMux.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What user problem is this feature addressing?
+      placeholder: I want to save profiles to files so I can share them between machines.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you want.
+      placeholder: Add import/export buttons for JSON profile files in the Profiles panel.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional.
+  - type: textarea
+    id: extra_context
+    attributes:
+      label: Extra context
+      description: Optional mockups, examples, links, or FFmpeg references.

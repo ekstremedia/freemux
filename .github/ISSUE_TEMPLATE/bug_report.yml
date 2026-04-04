@@ -1,0 +1,64 @@
+name: Bug report
+description: Report a reproducible problem in FreeMux.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please include enough detail for someone else to reproduce it.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+      placeholder: FreeMux crashes when I start a conversion to MP4 with libx264.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps.
+      placeholder: |
+        1. Open a file
+        2. Select the "H.264 1080p AAC" profile
+        3. Choose an output path
+        4. Click Convert file
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Input media details
+      description: Share anything relevant from the inspector panel.
+      placeholder: Container, codec, resolution, duration, bitrate, etc.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      description: Paste any visible FFmpeg/FFprobe errors.
+      render: shell
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: app_version
+    attributes:
+      label: FreeMux version
+      placeholder: v0.1.0
+  - type: input
+    id: ffmpeg_source
+    attributes:
+      label: FFmpeg source
+      description: Bundled, system PATH, or custom env path.
+      placeholder: bundled

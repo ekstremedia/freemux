@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: FreeMux discussions
+    url: https://github.com/ekstremedia/freemux/discussions
+    about: Use GitHub Discussions for open-ended ideas and questions.

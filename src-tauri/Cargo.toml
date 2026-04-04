@@ -1,0 +1,20 @@
+[package]
+name = "freemux"
+version = "0.1.0"
+description = "FreeMux desktop media converter"
+authors = ["Terje"]
+edition = "2021"
+
+[lib]
+name = "freemux_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.0.0", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "=2.0.0", features = [] }
+tauri-plugin-dialog = "=2.0.0"
+tauri-plugin-opener = "=2.0.0"
