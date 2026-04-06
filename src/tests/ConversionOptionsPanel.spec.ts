@@ -17,8 +17,6 @@ describe("ConversionOptionsPanel", () => {
         profiles: [profile, otherProfile],
         selectedProfileId: profile.id,
         profile,
-        outputPath: "/tmp/output.mp4",
-        isConverting: false,
         profileActionMessage: null,
       },
     });
@@ -33,33 +31,29 @@ describe("ConversionOptionsPanel", () => {
     expect(wrapper.emitted("selectProfile")?.[0]).toEqual([otherProfile.id]);
   });
 
-  it("emits output path updates and browse action", async () => {
-    const wrapper = mountPanel();
-    const outputInput = wrapper.find('input[placeholder="/path/to/output.mov"]');
-
-    await outputInput.setValue("/tmp/render.mov");
-    expect(wrapper.emitted("updateOutputPath")?.[0]).toEqual(["/tmp/render.mov"]);
-
-    const browseButton = wrapper.findAll("button").find((button) => button.text() === "Browse");
-    expect(browseButton).toBeTruthy();
-    await browseButton!.trigger("click");
-    expect(wrapper.emitted("pickOutput")).toHaveLength(1);
-  });
-
-  it("emits save-as-new and convert actions", async () => {
+  it("emits save-as-new action", async () => {
     const wrapper = mountPanel();
     const buttons = wrapper.findAll("button");
 
     const saveAsNewButton = buttons.find((button) => button.text() === "Save as new");
-    const convertButton = buttons.find((button) => button.text() === "Convert file");
-
     expect(saveAsNewButton).toBeTruthy();
-    expect(convertButton).toBeTruthy();
 
     await saveAsNewButton!.trigger("click");
-    await convertButton!.trigger("click");
-
     expect(wrapper.emitted("saveProfile")?.[0]).toEqual([true]);
-    expect(wrapper.emitted("convert")).toHaveLength(1);
+  });
+
+  it("emits profile actions", async () => {
+    const wrapper = mountPanel();
+    const buttons = wrapper.findAll("button");
+
+    const saveButton = buttons.find((button) => button.text() === "Save");
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger("click");
+    expect(wrapper.emitted("saveProfile")?.[0]).toEqual([false]);
+
+    const duplicateButton = buttons.find((button) => button.text() === "Duplicate");
+    expect(duplicateButton).toBeTruthy();
+    await duplicateButton!.trigger("click");
+    expect(wrapper.emitted("duplicateProfile")).toHaveLength(1);
   });
 });

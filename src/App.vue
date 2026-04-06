@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
 import AppHeader from "@/components/AppHeader.vue";
-import CommandPreview from "@/components/CommandPreview.vue";
-import ConversionProgressPanel from "@/components/ConversionProgressPanel.vue";
 import ConversionOptionsPanel from "@/components/ConversionOptionsPanel.vue";
+import OutputPanel from "@/components/OutputPanel.vue";
 import SourceInspector from "@/components/SourceInspector.vue";
 import { createConverterStore } from "@/stores/useConverterStore";
 
-type WorkspaceTab = "source" | "convert";
+type WorkspaceTab = "source" | "settings" | "output";
 
 const store = createConverterStore();
 const activeTab = ref<WorkspaceTab>("source");
+
+const tabs: { id: WorkspaceTab; label: string }[] = [
+  { id: "source", label: "Source" },
+  { id: "settings", label: "Settings" },
+  { id: "output", label: "Output" },
+];
 
 onMounted(() => {
   void store.initialize();
@@ -27,77 +32,74 @@ onUnmounted(() => {
 
     <main class="mx-auto max-w-7xl">
       <nav
-        class="mb-4 inline-flex w-full max-w-sm gap-2 rounded-2xl border border-amber-200/15 bg-white/5 p-1.5 md:w-auto"
+        class="mb-4 inline-flex w-full max-w-md gap-2 rounded-2xl border border-amber-200/15 bg-white/5 p-1.5 md:w-auto"
         aria-label="Workspace sections"
       >
         <button
+          v-for="tab in tabs"
+          :key="tab.id"
           type="button"
           class="min-w-0 flex-1 rounded-xl border px-4 py-3 text-sm font-medium transition md:min-w-[110px] md:flex-none"
           :class="
-            activeTab === 'source'
+            activeTab === tab.id
               ? 'border-amber-300/25 bg-amber-300/15 text-stone-100'
               : 'border-transparent bg-transparent text-stone-400 hover:border-amber-300/15 hover:bg-white/5 hover:text-stone-200'
           "
-          @click="activeTab = 'source'"
+          @click="activeTab = tab.id"
         >
-          Source
-        </button>
-        <button
-          type="button"
-          class="min-w-0 flex-1 rounded-xl border px-4 py-3 text-sm font-medium transition md:min-w-[110px] md:flex-none"
-          :class="
-            activeTab === 'convert'
-              ? 'border-amber-300/25 bg-amber-300/15 text-stone-100'
-              : 'border-transparent bg-transparent text-stone-400 hover:border-amber-300/15 hover:bg-white/5 hover:text-stone-200'
-          "
-          @click="activeTab = 'convert'"
-        >
-          Convert
+          {{ tab.label }}
         </button>
       </nav>
 
+      <!-- Source tab -->
       <section v-if="activeTab === 'source'">
         <SourceInspector
-          :input-path="store.state.inputPath"
-          :output-path="store.state.outputPath"
-          :probe="store.state.probe"
-          :is-probing="store.state.isProbing"
+          :files="store.state.files"
+          :selected-file-id="store.state.selectedFileId"
+          :selected-file="store.currentFile.value"
           :last-error="store.state.lastError"
-          @pick-input="store.pickInputFile"
-          @pick-output="store.pickOutputFile"
-          @probe="store.probeInput"
+          @pick-files="store.pickInputFiles"
+          @pick-folder="store.pickInputFolder"
+          @clear-files="store.clearFiles"
+          @select-file="store.selectFile"
+          @remove-file="store.removeFile"
+          @open-in-player="store.openInPlayer"
         />
       </section>
 
-      <section v-else class="grid items-start gap-4 xl:grid-cols-[minmax(360px,0.78fr)_minmax(0,1.22fr)]">
-        <div class="grid gap-4">
-          <ConversionProgressPanel
-            :progress="store.state.conversionProgress"
-            :is-converting="store.state.isConverting"
-          />
+      <!-- Settings tab -->
+      <section v-else-if="activeTab === 'settings'">
+        <ConversionOptionsPanel
+          :profiles="store.state.profiles"
+          :selected-profile-id="store.state.selectedProfileId"
+          :profile="store.currentProfile.value"
+          :profile-action-message="store.state.profileActionMessage"
+          @select-profile="store.selectProfile"
+          @create-profile="store.createNewProfile"
+          @save-profile="store.saveCurrentProfile"
+          @delete-profile="store.deleteProfile"
+          @duplicate-profile="store.duplicateCurrentProfile"
+          @update-profile="store.updateCurrentProfile"
+        />
+      </section>
 
-          <CommandPreview :command="store.commandPreview.value" />
-        </div>
-
-        <div class="grid gap-4">
-          <ConversionOptionsPanel
-            :profiles="store.state.profiles"
-            :selected-profile-id="store.state.selectedProfileId"
-            :profile="store.currentProfile.value"
-            :is-converting="store.state.isConverting"
-            :output-path="store.state.outputPath"
-            :profile-action-message="store.state.profileActionMessage"
-            @select-profile="store.selectProfile"
-            @create-profile="store.createNewProfile"
-            @save-profile="store.saveCurrentProfile"
-            @delete-profile="store.deleteProfile"
-            @duplicate-profile="store.duplicateCurrentProfile"
-            @pick-output="store.pickOutputFile"
-            @update-output-path="store.setOutputPath"
-            @update-profile="store.updateCurrentProfile"
-            @convert="store.runConversion"
-          />
-        </div>
+      <!-- Output tab -->
+      <section v-else>
+        <OutputPanel
+          :files="store.state.files"
+          :output-folder="store.state.outputFolder"
+          :profile="store.currentProfile.value"
+          :command-preview="store.commandPreview.value"
+          :is-converting="store.state.isConverting"
+          :batch-progress="store.state.batchProgress"
+          @pick-output-folder="store.pickOutputFolder"
+          @set-output-folder="store.setOutputFolder"
+          @update-file-output-path="store.updateFileOutputPath"
+          @start-conversion="store.runBatchConversion"
+          @cancel-conversion="store.cancelConversion"
+          @open-output-folder="store.openOutputFolder"
+          @open-output-file="store.openOutputFile"
+        />
       </section>
     </main>
   </div>

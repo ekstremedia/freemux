@@ -7,22 +7,25 @@ import {
   upsertProfile,
   type ConversionProfile,
 } from "@/domain/conversion";
-import type { ConversionProgress, MediaProbe, ToolingStatus } from "@/domain/media";
+import type {
+  BatchProgress,
+  SourceFile,
+  ToolingStatus,
+} from "@/domain/media";
 import { tauriDesktopClient, type DesktopClient } from "@/services/desktopClient";
 import { buildFfmpegCommandPreview } from "@/utils/ffmpegArgs";
-import { suggestOutputPath } from "@/utils/pathing";
+import { dirname, suggestBatchOutputPath, suggestOutputPath } from "@/utils/pathing";
 
 interface ConverterState {
+  files: SourceFile[];
+  selectedFileId: string | null;
+  outputFolder: string;
   profiles: ConversionProfile[];
   selectedProfileId: string | null;
-  inputPath: string;
-  outputPath: string;
-  probe: MediaProbe | null;
   tooling: ToolingStatus | null;
   lastError: string | null;
-  isProbing: boolean;
   isConverting: boolean;
-  conversionProgress: ConversionProgress | null;
+  batchProgress: BatchProgress | null;
   profileActionMessage: string | null;
 }
 
@@ -30,31 +33,48 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
   let unsubscribeProgress: UnlistenFn | null = null;
 
   const state = reactive<ConverterState>({
+    files: [],
+    selectedFileId: null,
+    outputFolder: "",
     profiles: [],
     selectedProfileId: null,
-    inputPath: "",
-    outputPath: "",
-    probe: null,
     tooling: null,
     lastError: null,
-    isProbing: false,
     isConverting: false,
-    conversionProgress: null,
+    batchProgress: null,
     profileActionMessage: null,
   });
+
+  const currentFile = computed(() =>
+    state.files.find((file) => file.id === state.selectedFileId) ?? null,
+  );
 
   const currentProfile = computed(() =>
     state.profiles.find((profile) => profile.id === state.selectedProfileId) ?? null,
   );
 
-  const commandPreview = computed(() =>
-    buildFfmpegCommandPreview(state.inputPath, state.outputPath, currentProfile.value),
-  );
+  const commandPreview = computed(() => {
+    const file = currentFile.value;
+    if (!file) {
+      return buildFfmpegCommandPreview("", "", currentProfile.value);
+    }
+    return buildFfmpegCommandPreview(file.inputPath, file.outputPath, currentProfile.value);
+  });
 
   async function initialize() {
     if (!unsubscribeProgress) {
       unsubscribeProgress = await client.subscribeToConversionProgress((progress) => {
-        state.conversionProgress = progress;
+        if (state.batchProgress && state.batchProgress.phase === "running") {
+          const fileIndex = state.batchProgress.currentFileIndex;
+          const file = state.files[fileIndex];
+          if (file) {
+            file.progress = progress;
+            const completedCount = state.files.filter((f) => f.status === "completed").length;
+            const currentPercent = progress.percent ?? 0;
+            state.batchProgress.overallPercent =
+              ((completedCount + currentPercent / 100) / state.batchProgress.totalFiles) * 100;
+          }
+        }
       });
     }
 
@@ -64,66 +84,146 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     state.selectedProfileId = state.profiles[0]?.id ?? null;
   }
 
-  async function pickInputFile() {
-    const path = await client.chooseInputFile();
-    if (!path) {
-      return;
-    }
+  // --- File management ---
 
-    state.inputPath = path;
-    state.outputPath = suggestOutputPath(path, currentProfile.value?.container ?? "mp4");
-    state.lastError = null;
-    await probeInput();
+  function createSourceFile(inputPath: string): SourceFile {
+    const container = currentProfile.value?.container ?? "mp4";
+    const outputPath = state.outputFolder
+      ? suggestBatchOutputPath(inputPath, state.outputFolder, container)
+      : suggestOutputPath(inputPath, container);
+
+    return {
+      id: crypto.randomUUID(),
+      inputPath,
+      outputPath,
+      probe: null,
+      isProbing: false,
+      thumbnail: null,
+      progress: null,
+      status: "pending",
+    };
   }
 
-  async function pickOutputFile() {
-    const path = await client.chooseOutputFile(
-      state.outputPath || suggestOutputPath(state.inputPath, currentProfile.value?.container ?? "mp4"),
-    );
-
-    if (path) {
-      state.outputPath = path;
-    }
-  }
-
-  function setOutputPath(outputPath: string) {
-    state.outputPath = outputPath;
-  }
-
-  async function probeInput() {
-    if (!state.inputPath) {
-      return;
-    }
-
-    state.isProbing = true;
-    state.lastError = null;
-
+  async function probeFile(file: SourceFile) {
+    file.isProbing = true;
     try {
-      state.probe = await client.probeMedia(state.inputPath);
-    } catch (error) {
-      state.lastError = error instanceof Error ? error.message : String(error);
+      file.probe = await client.probeMedia(file.inputPath);
+    } catch {
+      // Probe failure is non-fatal; file stays in list without probe data
     } finally {
-      state.isProbing = false;
+      file.isProbing = false;
+    }
+
+    // Generate thumbnail in background (non-blocking)
+    client.getThumbnail(file.inputPath).then(
+      (dataUrl) => {
+        file.thumbnail = dataUrl;
+      },
+      () => {
+        // Thumbnail generation failure is non-fatal
+      },
+    );
+  }
+
+  async function addFiles(paths: string[]) {
+    const newFiles = paths.map((path) => createSourceFile(path));
+    state.files.push(...newFiles);
+
+    if (!state.selectedFileId && newFiles.length > 0) {
+      state.selectedFileId = newFiles[0].id;
+    }
+
+    if (!state.outputFolder && newFiles.length > 0) {
+      state.outputFolder = dirname(newFiles[0].inputPath);
+    }
+
+    state.lastError = null;
+    await Promise.all(newFiles.map((file) => probeFile(file)));
+  }
+
+  async function pickInputFiles() {
+    const paths = await client.chooseInputFiles();
+    if (!paths) {
+      return;
+    }
+    await addFiles(paths);
+  }
+
+  async function pickInputFolder() {
+    const folder = await client.chooseFolder();
+    if (!folder) {
+      return;
+    }
+    // For now, just open the folder dialog — the user will use "Open files" for individual selection
+    // In the future we could scan the folder for media files
+    // For now this sets the output folder
+    state.outputFolder = folder;
+    rederiveOutputPaths();
+  }
+
+  function removeFile(fileId: string) {
+    state.files = state.files.filter((file) => file.id !== fileId);
+    if (state.selectedFileId === fileId) {
+      state.selectedFileId = state.files[0]?.id ?? null;
     }
   }
+
+  function clearFiles() {
+    state.files = [];
+    state.selectedFileId = null;
+    state.batchProgress = null;
+    state.lastError = null;
+  }
+
+  function selectFile(fileId: string) {
+    state.selectedFileId = fileId;
+  }
+
+  function updateFileOutputPath(fileId: string, outputPath: string) {
+    const file = state.files.find((f) => f.id === fileId);
+    if (file) {
+      file.outputPath = outputPath;
+    }
+  }
+
+  // --- Output folder ---
+
+  async function pickOutputFolder() {
+    const folder = await client.chooseOutputFolder();
+    if (folder) {
+      state.outputFolder = folder;
+      rederiveOutputPaths();
+    }
+  }
+
+  function setOutputFolder(folder: string) {
+    state.outputFolder = folder;
+    rederiveOutputPaths();
+  }
+
+  function rederiveOutputPaths() {
+    const container = currentProfile.value?.container ?? "mp4";
+    for (const file of state.files) {
+      if (state.outputFolder) {
+        file.outputPath = suggestBatchOutputPath(file.inputPath, state.outputFolder, container);
+      } else {
+        file.outputPath = suggestOutputPath(file.inputPath, container);
+      }
+    }
+  }
+
+  // --- Profile management ---
 
   function selectProfile(profileId: string) {
     state.selectedProfileId = profileId;
     state.profileActionMessage = null;
-    const profile = state.profiles.find((item) => item.id === profileId);
-
-    if (profile && state.inputPath) {
-      state.outputPath = suggestOutputPath(state.inputPath, profile.container);
-    }
+    rederiveOutputPaths();
   }
 
   function updateCurrentProfile(profile: ConversionProfile) {
     state.profiles = upsertProfile(state.profiles, profile);
     state.profileActionMessage = null;
-
-    if (state.inputPath) {
-      state.outputPath = suggestOutputPath(state.inputPath, profile.container);
-    }
+    rederiveOutputPaths();
   }
 
   async function createNewProfile() {
@@ -178,66 +278,148 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
       : "Deleted profile.";
   }
 
-  async function runConversion() {
-    if (!currentProfile.value || !state.inputPath || !state.outputPath) {
+  // --- Conversion ---
+
+  async function runBatchConversion() {
+    if (!currentProfile.value || state.files.length === 0) {
       return;
     }
 
     state.isConverting = true;
     state.lastError = null;
-    state.conversionProgress = {
+    state.batchProgress = {
       phase: "running",
-      percent: 0,
-      frame: null,
-      fps: null,
-      speed: null,
-      outputTimeSeconds: 0,
-      totalDurationSeconds: state.probe?.format.durationSeconds ?? null,
-      rawLine: "Starting conversion...",
+      currentFileIndex: 0,
+      totalFiles: state.files.length,
+      overallPercent: 0,
     };
 
-    try {
-      const result = await client.runConversion({
-        inputPath: state.inputPath,
-        outputPath: state.outputPath,
-        profile: currentProfile.value,
-      });
+    // Reset all file statuses
+    for (const file of state.files) {
+      file.status = "pending";
+      file.progress = null;
+    }
 
-      if (!result.success) {
-        throw new Error(result.stderr || `Conversion failed with exit code ${result.exitCode}`);
+    for (let i = 0; i < state.files.length; i++) {
+      if (state.batchProgress.phase === "cancelled") {
+        break;
       }
 
-      state.conversionProgress = {
-        ...(state.conversionProgress ?? {
-          frame: null,
-          fps: null,
-          speed: null,
-          outputTimeSeconds: state.probe?.format.durationSeconds ?? null,
-          totalDurationSeconds: state.probe?.format.durationSeconds ?? null,
-          rawLine: null,
-        }),
-        phase: "completed",
-        percent: 100,
-        rawLine: "Conversion completed.",
+      const file = state.files[i];
+      state.batchProgress.currentFileIndex = i;
+      file.status = "running";
+      file.progress = {
+        phase: "running",
+        percent: 0,
+        frame: null,
+        fps: null,
+        speed: null,
+        outputTimeSeconds: 0,
+        totalDurationSeconds: file.probe?.format.durationSeconds ?? null,
+        rawLine: "Starting conversion...",
       };
-    } catch (error) {
-      state.conversionProgress = {
-        ...(state.conversionProgress ?? {
-          percent: null,
-          frame: null,
-          fps: null,
-          speed: null,
-          outputTimeSeconds: null,
-          totalDurationSeconds: state.probe?.format.durationSeconds ?? null,
-          rawLine: null,
-        }),
-        phase: "failed",
-        rawLine: error instanceof Error ? error.message : String(error),
-      };
-      state.lastError = error instanceof Error ? error.message : String(error);
-    } finally {
-      state.isConverting = false;
+
+      try {
+        const result = await client.runConversion({
+          inputPath: file.inputPath,
+          outputPath: file.outputPath,
+          profile: currentProfile.value,
+        });
+
+        if (!result.success) {
+          throw new Error(result.stderr || `Conversion failed with exit code ${result.exitCode}`);
+        }
+
+        file.status = "completed";
+        file.progress = {
+          ...(file.progress ?? {
+            frame: null,
+            fps: null,
+            speed: null,
+            outputTimeSeconds: null,
+            totalDurationSeconds: null,
+            rawLine: null,
+          }),
+          phase: "completed",
+          percent: 100,
+          rawLine: "Conversion completed.",
+        };
+      } catch (error) {
+        file.status = "failed";
+        file.progress = {
+          ...(file.progress ?? {
+            percent: null,
+            frame: null,
+            fps: null,
+            speed: null,
+            outputTimeSeconds: null,
+            totalDurationSeconds: null,
+            rawLine: null,
+          }),
+          phase: "failed",
+          rawLine: error instanceof Error ? error.message : String(error),
+        };
+        state.lastError = error instanceof Error ? error.message : String(error);
+      }
+
+      const completedCount = state.files.filter((f) => f.status === "completed").length;
+      state.batchProgress.overallPercent = (completedCount / state.files.length) * 100;
     }
+
+    if (state.batchProgress.phase !== "cancelled") {
+      const anyFailed = state.files.some((f) => f.status === "failed");
+      state.batchProgress.phase = anyFailed ? "failed" : "completed";
+      state.batchProgress.overallPercent = anyFailed
+        ? state.batchProgress.overallPercent
+        : 100;
+    }
+
+    state.isConverting = false;
+  }
+
+  async function cancelConversion() {
+    if (state.batchProgress) {
+      state.batchProgress.phase = "cancelled";
+    }
+    try {
+      await client.cancelConversion();
+    } catch {
+      // Cancel is best-effort
+    }
+    state.isConverting = false;
+  }
+
+  async function openOutputFolder() {
+    if (state.outputFolder) {
+      await client.revealInFolder(state.outputFolder);
+    } else if (state.files.length > 0) {
+      const firstCompleted = state.files.find((f) => f.status === "completed");
+      if (firstCompleted) {
+        await client.revealInFolder(firstCompleted.outputPath);
+      }
+    }
+  }
+
+  async function openInPlayer(filePath: string) {
+    await client.openPath(filePath);
+  }
+
+  async function openOutputFile(fileId: string) {
+    const file = state.files.find((f) => f.id === fileId);
+    if (file && file.status === "completed") {
+      await client.openPath(file.outputPath);
+    }
+  }
+
+  // --- Backward compatibility (used during transition) ---
+
+  // Single-file convenience for picking one file (legacy flow)
+  async function pickInputFile() {
+    const path = await client.chooseInputFile();
+    if (!path) {
+      return;
+    }
+    await addFiles([path]);
   }
 
   function dispose() {
@@ -247,20 +429,35 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
 
   return {
     state,
+    currentFile,
     currentProfile,
     commandPreview,
     initialize,
+    // File management
+    addFiles,
+    pickInputFiles,
     pickInputFile,
-    pickOutputFile,
-    setOutputPath,
-    probeInput,
+    pickInputFolder,
+    removeFile,
+    clearFiles,
+    selectFile,
+    updateFileOutputPath,
+    // Output folder
+    pickOutputFolder,
+    setOutputFolder,
+    // Profiles
     selectProfile,
     updateCurrentProfile,
     createNewProfile,
     duplicateCurrentProfile,
     saveCurrentProfile,
     deleteProfile,
-    runConversion,
+    // Conversion
+    runBatchConversion,
+    cancelConversion,
+    openInPlayer,
+    openOutputFolder,
+    openOutputFile,
     dispose,
   };
 }

@@ -8,6 +8,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(models::ConversionState::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_tooling_status,
             commands::probe_media,
@@ -15,6 +16,8 @@ pub fn run() {
             commands::save_profile,
             commands::delete_profile,
             commands::run_conversion,
+            commands::get_thumbnail,
+            commands::cancel_conversion,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

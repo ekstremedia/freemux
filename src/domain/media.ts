@@ -53,3 +53,25 @@ export interface ConversionProgress {
   totalDurationSeconds: number | null;
   rawLine: string | null;
 }
+
+export type SourceFileStatus = "pending" | "running" | "completed" | "failed";
+
+export interface SourceFile {
+  id: string;
+  inputPath: string;
+  outputPath: string;
+  probe: MediaProbe | null;
+  isProbing: boolean;
+  thumbnail: string | null;
+  progress: ConversionProgress | null;
+  status: SourceFileStatus;
+}
+
+export type BatchPhase = "idle" | "running" | "completed" | "cancelled" | "failed";
+
+export interface BatchProgress {
+  phase: BatchPhase;
+  currentFileIndex: number;
+  totalFiles: number;
+  overallPercent: number;
+}

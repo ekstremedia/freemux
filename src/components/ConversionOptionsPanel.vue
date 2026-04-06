@@ -5,8 +5,6 @@ const props = defineProps<{
   profiles: ConversionProfile[];
   selectedProfileId: string | null;
   profile: ConversionProfile | null;
-  outputPath: string;
-  isConverting: boolean;
   profileActionMessage: string | null;
 }>();
 
@@ -16,10 +14,7 @@ const emit = defineEmits<{
   saveProfile: [saveAsNew?: boolean];
   deleteProfile: [profileId: string];
   duplicateProfile: [];
-  pickOutput: [];
-  updateOutputPath: [outputPath: string];
   updateProfile: [profile: ConversionProfile];
-  convert: [];
 }>();
 
 function update<K extends keyof ConversionProfile>(key: K, value: ConversionProfile[K]) {
@@ -92,44 +87,29 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
   <section class="overflow-hidden rounded-[24px] border border-amber-200/15 bg-zinc-900/80 shadow-[0_24px_60px_rgba(0,0,0,0.32)] backdrop-blur-xl">
     <div class="px-5 pt-5">
       <div>
-        <h2 class="m-0 text-lg font-semibold text-stone-100">Convert</h2>
-        <p class="mt-1 text-sm text-stone-400">Choose a profile, set the output file, then run the conversion.</p>
+        <h2 class="m-0 text-lg font-semibold text-stone-100">Settings</h2>
+        <p class="mt-1 text-sm text-stone-400">Select and configure conversion profiles.</p>
       </div>
     </div>
 
     <div v-if="profile" class="grid gap-4 p-5">
       <div class="grid gap-4 rounded-2xl border border-white/5 bg-white/3 p-4">
-        <div class="grid gap-4 xl:grid-cols-2">
-          <label class="grid gap-1.5 text-sm text-stone-400">
-            Profile
-            <select
-              class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
-              :value="selectedProfileId ?? ''"
-              @change="$emit('selectProfile', ($event.target as HTMLSelectElement).value)"
+        <label class="grid gap-1.5 text-sm text-stone-400">
+          Profile
+          <select
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
+            :value="selectedProfileId ?? ''"
+            @change="$emit('selectProfile', ($event.target as HTMLSelectElement).value)"
+          >
+            <option
+              v-for="item in profiles"
+              :key="item.id"
+              :value="item.id"
             >
-              <option
-                v-for="item in profiles"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.name }}
-              </option>
-            </select>
-          </label>
-
-          <label class="grid gap-1.5 text-sm text-stone-400">
-            Output file
-            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-              <input
-                class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-amber-300/30"
-                :value="outputPath"
-                placeholder="/path/to/output.mov"
-                @input="$emit('updateOutputPath', ($event.target as HTMLInputElement).value)"
-              />
-              <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('pickOutput')">Browse</button>
-            </div>
-          </label>
-        </div>
+              {{ item.name }}
+            </option>
+          </select>
+        </label>
 
         <div class="flex flex-wrap gap-2">
           <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('createProfile')">New</button>
@@ -143,14 +123,6 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
             @click="selectedProfileId && $emit('deleteProfile', selectedProfileId)"
           >
             Delete
-          </button>
-          <button
-            type="button"
-            class="ml-auto rounded-xl border border-amber-300/25 bg-gradient-to-b from-amber-300/25 to-amber-400/10 px-5 py-3 text-sm font-semibold text-stone-100 transition hover:border-amber-300/35 hover:from-amber-300/35 disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="!profile || !outputPath || isConverting"
-            @click="$emit('convert')"
-          >
-            {{ isConverting ? "Converting..." : "Convert file" }}
           </button>
         </div>
 

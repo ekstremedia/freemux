@@ -1,8 +1,9 @@
 use crate::models::{
     AudioSettings, ConversionProfile, ConversionProgress, ConversionResult, ConversionRunRequest,
-    MediaFormatInfo, MediaProbe, MediaStream, ResolutionSettings, ToolDescriptor, ToolSource,
-    ToolingStatus, VideoSettings,
+    ConversionState, MediaFormatInfo, MediaProbe, MediaStream, ResolutionSettings, ToolDescriptor,
+    ToolSource, ToolingStatus, VideoSettings,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::Deserialize;
 use std::env;
 use std::ffi::OsString;
@@ -123,6 +124,13 @@ pub fn run_conversion_job(app: &AppHandle, request: ConversionRunRequest) -> Res
         .spawn()
         .map_err(|error| format!("failed to run ffmpeg: {error}"))?;
 
+    // Store child PID for cancel support
+    if let Some(conversion_state) = app.try_state::<ConversionState>() {
+        if let Ok(mut pid) = conversion_state.child_pid.lock() {
+            *pid = Some(child.id());
+        }
+    }
+
     let stderr = child
         .stderr
         .take()
@@ -160,6 +168,13 @@ pub fn run_conversion_job(app: &AppHandle, request: ConversionRunRequest) -> Res
     let status = child
         .wait()
         .map_err(|error| format!("failed to wait for ffmpeg: {error}"))?;
+
+    // Clear child PID
+    if let Some(conversion_state) = app.try_state::<ConversionState>() {
+        if let Ok(mut pid) = conversion_state.child_pid.lock() {
+            *pid = None;
+        }
+    }
 
     progress.phase = if status.success() {
         "completed".to_string()
@@ -493,4 +508,37 @@ fn apply_audio_args(args: &mut Vec<OsString>, audio: &AudioSettings) {
         args.push(OsString::from("-ar"));
         args.push(OsString::from(sample_rate.to_string()));
     }
+}
+
+pub fn generate_thumbnail(app: &AppHandle, input_path: &str) -> Result<String, String> {
+    let ffmpeg = resolve_tool(app, "ffmpeg", "FFMPEG_PATH")?
+        .ok_or_else(|| "ffmpeg was not found. Bundle it or install it on PATH.".to_string())?;
+
+    let output = Command::new(ffmpeg.path)
+        .args([
+            "-i",
+            input_path,
+            "-vf",
+            "thumbnail,scale=640:-1",
+            "-frames:v",
+            "1",
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "mjpeg",
+            "-q:v",
+            "5",
+            "pipe:1",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|error| format!("failed to run ffmpeg for thumbnail: {error}"))?;
+
+    if !output.status.success() || output.stdout.is_empty() {
+        return Err("failed to generate thumbnail".to_string());
+    }
+
+    let base64 = BASE64.encode(&output.stdout);
+    Ok(format!("data:image/jpeg;base64,{base64}"))
 }
