@@ -24,7 +24,7 @@ export function basename(filePath: string): string {
 export function dirname(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/");
   const lastSlash = normalized.lastIndexOf("/");
-  return lastSlash === -1 ? "" : filePath.slice(0, lastSlash);
+  return lastSlash === -1 ? "" : normalized.slice(0, lastSlash);
 }
 
 export function suggestBatchOutputPath(

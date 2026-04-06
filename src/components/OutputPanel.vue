@@ -142,17 +142,22 @@ function fileStatusClass(file: SourceFile): string {
 
       <!-- Output location -->
       <div class="rounded-2xl border border-white/5 bg-white/3 p-4">
-        <span class="text-xs font-medium tracking-wide text-stone-500 uppercase">Output folder</span>
+        <label for="output-folder" class="text-xs font-medium tracking-wide text-stone-500 uppercase">
+          Output folder
+        </label>
         <div class="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
           <input
+            id="output-folder"
             class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-amber-300/30"
             :value="outputFolder"
+            :disabled="isConverting"
             placeholder="/path/to/output/folder"
             @input="$emit('setOutputFolder', ($event.target as HTMLInputElement).value)"
           />
           <button
             type="button"
-            class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8"
+            class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="isConverting"
             @click="$emit('pickOutputFolder')"
           >
             Browse
@@ -168,7 +173,10 @@ function fileStatusClass(file: SourceFile): string {
           >
             <span :class="fileStatusClass(file)" class="w-4 text-center text-xs">{{ fileStatusIcon(file) }}</span>
             <input
+              :id="`file-output-${file.id}`"
               class="w-full rounded-lg border border-white/5 bg-white/3 px-2.5 py-1.5 text-xs text-stone-200 outline-none transition placeholder:text-stone-500 focus:border-amber-300/20"
+              :aria-label="`Output filename for ${basename(file.inputPath)}`"
+              :disabled="isConverting"
               :value="basename(file.outputPath)"
               @input="
                 $emit(

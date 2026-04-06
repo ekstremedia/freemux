@@ -10,7 +10,8 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug)]
@@ -45,6 +46,52 @@ struct RawStream {
     bit_rate: Option<String>,
     sample_rate: Option<String>,
     channels: Option<u32>,
+}
+
+struct FfmpegChildGuard {
+    child: Option<Child>,
+    child_pid: Option<Arc<Mutex<Option<u32>>>>,
+}
+
+impl FfmpegChildGuard {
+    fn new(child: Child, child_pid: Option<Arc<Mutex<Option<u32>>>>) -> Self {
+        Self {
+            child: Some(child),
+            child_pid,
+        }
+    }
+
+    fn child_mut(&mut self) -> Result<&mut Child, String> {
+        self.child
+            .as_mut()
+            .ok_or_else(|| "ffmpeg child process is unavailable".to_string())
+    }
+
+    fn wait(&mut self) -> Result<ExitStatus, String> {
+        self.child_mut()?
+            .wait()
+            .map_err(|error| format!("failed to wait for ffmpeg: {error}"))
+    }
+}
+
+impl Drop for FfmpegChildGuard {
+    fn drop(&mut self) {
+        if let Some(child_pid) = &self.child_pid {
+            if let Ok(mut pid) = child_pid.lock() {
+                *pid = None;
+            }
+        }
+
+        if let Some(child) = self.child.as_mut() {
+            match child.try_wait() {
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+    }
 }
 
 pub fn resolve_tooling_status(app: &AppHandle) -> Result<ToolingStatus, String> {
@@ -117,21 +164,28 @@ pub fn run_conversion_job(app: &AppHandle, request: ConversionRunRequest) -> Res
         .ok()
         .and_then(|probe| probe.format.duration_seconds);
 
-    let mut child = Command::new(ffmpeg.path)
+    let child = Command::new(ffmpeg.path)
         .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("failed to run ffmpeg: {error}"))?;
 
+    let child_pid = app
+        .try_state::<ConversionState>()
+        .map(|conversion_state| conversion_state.child_pid.clone());
+
     // Store child PID for cancel support
-    if let Some(conversion_state) = app.try_state::<ConversionState>() {
-        if let Ok(mut pid) = conversion_state.child_pid.lock() {
+    if let Some(conversion_state) = &child_pid {
+        if let Ok(mut pid) = conversion_state.lock() {
             *pid = Some(child.id());
         }
     }
 
+    let mut child = FfmpegChildGuard::new(child, child_pid);
+
     let stderr = child
+        .child_mut()?
         .stderr
         .take()
         .ok_or_else(|| "failed to capture ffmpeg stderr".to_string())?;
@@ -165,16 +219,7 @@ pub fn run_conversion_job(app: &AppHandle, request: ConversionRunRequest) -> Res
             .map_err(|error| format!("failed to emit conversion progress: {error}"))?;
     }
 
-    let status = child
-        .wait()
-        .map_err(|error| format!("failed to wait for ffmpeg: {error}"))?;
-
-    // Clear child PID
-    if let Some(conversion_state) = app.try_state::<ConversionState>() {
-        if let Ok(mut pid) = conversion_state.child_pid.lock() {
-            *pid = None;
-        }
-    }
+    let status = child.wait()?;
 
     progress.phase = if status.success() {
         "completed".to_string()

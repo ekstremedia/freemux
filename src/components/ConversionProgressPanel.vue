@@ -18,9 +18,11 @@ defineProps<{
       <span
         class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.18em]"
         :class="
-          isConverting
-            ? 'border-amber-300/25 bg-amber-300/10 text-amber-200'
-            : 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200'
+          progress?.phase === 'failed'
+            ? 'border-rose-300/25 bg-rose-300/10 text-rose-200'
+            : isConverting
+              ? 'border-amber-300/25 bg-amber-300/10 text-amber-200'
+              : 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200'
         "
       >
         {{ isConverting ? "Running" : progress?.phase ?? "idle" }}

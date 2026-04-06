@@ -51,10 +51,12 @@ function streamSummary(file: SourceFile): string {
 
 <template>
   <div class="grid gap-1">
-    <button
+    <div
       v-for="file in files"
       :key="file.id"
-      type="button"
+      role="button"
+      tabindex="0"
+      :aria-pressed="file.id === selectedFileId"
       class="group grid gap-0.5 rounded-xl border px-3 py-2.5 text-left transition"
       :class="
         file.id === selectedFileId
@@ -62,6 +64,8 @@ function streamSummary(file: SourceFile): string {
           : 'border-white/5 bg-white/3 hover:border-white/10 hover:bg-white/5'
       "
       @click="$emit('selectFile', file.id)"
+      @keydown.enter.prevent="$emit('selectFile', file.id)"
+      @keydown.space.prevent="$emit('selectFile', file.id)"
     >
       <div class="flex items-center justify-between gap-2">
         <span class="truncate text-sm font-medium text-stone-100">
@@ -83,7 +87,7 @@ function streamSummary(file: SourceFile): string {
       <span v-else-if="file.probe" class="truncate text-xs text-stone-500">
         {{ streamSummary(file) }}
       </span>
-    </button>
+    </div>
 
     <div v-if="files.length === 0" class="rounded-xl border border-dashed border-amber-200/15 px-3 py-4 text-center text-sm text-stone-500">
       No files added yet.

@@ -38,6 +38,15 @@ const MEDIA_FILTERS = [
   },
 ];
 
+export async function chooseDirectory(): Promise<string | null> {
+  const result = await open({
+    multiple: false,
+    directory: true,
+  });
+
+  return typeof result === "string" ? result : null;
+}
+
 export const tauriDesktopClient: DesktopClient = {
   async chooseInputFile() {
     const result = await open({
@@ -64,12 +73,7 @@ export const tauriDesktopClient: DesktopClient = {
   },
 
   async chooseFolder() {
-    const result = await open({
-      multiple: false,
-      directory: true,
-    });
-
-    return typeof result === "string" ? result : null;
+    return chooseDirectory();
   },
 
   async chooseOutputFile(defaultPath) {
@@ -81,12 +85,7 @@ export const tauriDesktopClient: DesktopClient = {
   },
 
   async chooseOutputFolder() {
-    const result = await open({
-      multiple: false,
-      directory: true,
-    });
-
-    return typeof result === "string" ? result : null;
+    return chooseDirectory();
   },
 
   probeMedia(inputPath) {

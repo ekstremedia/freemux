@@ -52,25 +52,47 @@ pub async fn get_thumbnail(app: AppHandle, input_path: String) -> Result<String,
 
 #[tauri::command]
 pub async fn cancel_conversion(state: State<'_, ConversionState>) -> Result<(), String> {
-    let pid = state
+    let pid = *state
         .child_pid
         .lock()
-        .map_err(|error| format!("failed to lock conversion state: {error}"))?
-        .take();
+        .map_err(|error| format!("failed to lock conversion state: {error}"))?;
 
     if let Some(pid) = pid {
         #[cfg(unix)]
         {
-            unsafe {
-                libc::kill(pid as i32, libc::SIGTERM);
+            let result = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+            if result != 0 {
+                return Err(format!(
+                    "failed to terminate ffmpeg pid {pid}: {}",
+                    std::io::Error::last_os_error()
+                ));
             }
         }
 
         #[cfg(windows)]
         {
-            let _ = std::process::Command::new("taskkill")
+            let output = std::process::Command::new("taskkill")
                 .args(["/PID", &pid.to_string(), "/F"])
-                .output();
+                .output()
+                .map_err(|error| format!("failed to run taskkill for pid {pid}: {error}"))?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                let details = if stderr.is_empty() {
+                    format!("taskkill exited with status {}", output.status)
+                } else {
+                    stderr
+                };
+                return Err(format!("failed to terminate ffmpeg pid {pid}: {details}"));
+            }
+        }
+
+        let mut child_pid = state
+            .child_pid
+            .lock()
+            .map_err(|error| format!("failed to lock conversion state: {error}"))?;
+        if *child_pid == Some(pid) {
+            child_pid.take();
         }
     }
 

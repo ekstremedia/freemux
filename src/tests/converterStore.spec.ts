@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDefaultProfile } from "@/domain/conversion";
 import { createConverterStore } from "@/stores/useConverterStore";
 import type { DesktopClient } from "@/services/desktopClient";
-import type { ConversionProgress } from "@/domain/media";
+import type { ConversionProgress, ConversionResult } from "@/domain/media";
 
 function createClientStub(): DesktopClient {
   const profile = createDefaultProfile();
@@ -177,5 +177,59 @@ describe("converter store", () => {
     store.updateCurrentProfile({ ...newProfile, container: "mov" });
 
     expect(store.state.files[0].outputPath).toContain(".mov");
+  });
+
+  it("re-derives output paths when a new profile becomes active", async () => {
+    const store = createConverterStore(createClientStub());
+    await store.initialize();
+    await store.addFiles(["/videos/a.mkv"]);
+
+    expect(store.state.files[0].outputPath).toBe("/videos/a.mp4");
+
+    await store.createNewProfile();
+    const newProfileId = store.state.selectedProfileId!;
+    const newProfile = store.state.profiles.find((profile) => profile.id === newProfileId)!;
+    store.updateCurrentProfile({ ...newProfile, container: "mov" });
+
+    await store.createNewProfile();
+
+    expect(store.state.files[0].outputPath).toBe("/videos/a.mp4");
+  });
+
+  it("waits for the active batch to settle before cancel finishes", async () => {
+    let finishConversion: (() => void) | null = null;
+    const client = createClientStub();
+    client.runConversion = () =>
+      new Promise<ConversionResult>((resolve) => {
+        finishConversion = () => resolve({ success: false, exitCode: 255, stderr: "cancelled" });
+      });
+
+    const store = createConverterStore(client);
+    await store.initialize();
+    await store.addFiles(["/videos/a.mkv"]);
+
+    const batchPromise = store.runBatchConversion();
+    expect(store.state.isConverting).toBe(true);
+
+    const cancelPromise = store.cancelConversion();
+    await vi.waitFor(() => {
+      expect(finishConversion).not.toBeNull();
+    });
+
+    let cancelResolved = false;
+    void cancelPromise.then(() => {
+      cancelResolved = true;
+    });
+
+    await Promise.resolve();
+    expect(cancelResolved).toBe(false);
+
+    if (finishConversion) {
+      (finishConversion as () => void)();
+    }
+    await cancelPromise;
+    await batchPromise;
+
+    expect(store.state.isConverting).toBe(false);
   });
 });

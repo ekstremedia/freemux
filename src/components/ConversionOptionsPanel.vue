@@ -92,7 +92,7 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
       </div>
     </div>
 
-    <div v-if="profile" class="grid gap-4 p-5">
+    <div class="grid gap-4 p-5">
       <div class="grid gap-4 rounded-2xl border border-white/5 bg-white/3 p-4">
         <label class="grid gap-1.5 text-sm text-stone-400">
           Profile
@@ -128,12 +128,15 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
 
         <p
           v-if="profileActionMessage"
+          role="status"
+          aria-live="polite"
           class="m-0 rounded-xl border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-200"
         >
           {{ profileActionMessage }}
         </p>
       </div>
 
+      <template v-if="profile">
       <div class="grid gap-4 xl:grid-cols-2">
         <label class="grid gap-1.5 text-sm text-stone-400">
           Profile name
@@ -424,11 +427,12 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
         />
         Overwrite output if it already exists
       </label>
-    </div>
+      </template>
 
-    <div v-else class="p-5">
-      <div class="rounded-2xl border border-dashed border-amber-200/15 px-4 py-5 text-sm text-stone-400">
-        Select or create a profile to start editing conversion options.
+      <div v-else class="p-5">
+        <div class="rounded-2xl border border-dashed border-amber-200/15 px-4 py-5 text-sm text-stone-400">
+          Select or create a profile to start editing conversion options.
+        </div>
       </div>
     </div>
   </section>

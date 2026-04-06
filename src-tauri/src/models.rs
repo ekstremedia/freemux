@@ -1,14 +1,14 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 pub struct ConversionState {
-    pub child_pid: Mutex<Option<u32>>,
+    pub child_pid: Arc<Mutex<Option<u32>>>,
 }
 
 impl Default for ConversionState {
     fn default() -> Self {
         Self {
-            child_pid: Mutex::new(None),
+            child_pid: Arc::new(Mutex::new(None)),
         }
     }
 }

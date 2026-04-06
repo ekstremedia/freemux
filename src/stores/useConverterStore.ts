@@ -25,12 +25,17 @@ interface ConverterState {
   tooling: ToolingStatus | null;
   lastError: string | null;
   isConverting: boolean;
+  isBatchRunning: boolean;
   batchProgress: BatchProgress | null;
   profileActionMessage: string | null;
 }
 
 export function createConverterStore(client: DesktopClient = tauriDesktopClient) {
   let unsubscribeProgress: UnlistenFn | null = null;
+  let activeBatchFileIds: string[] = [];
+  let activeBatchStatuses = new Map<string, SourceFile["status"]>();
+  let currentBatchCompletion: Promise<void> | null = null;
+  let resolveCurrentBatchCompletion: (() => void) | null = null;
 
   const state = reactive<ConverterState>({
     files: [],
@@ -41,6 +46,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     tooling: null,
     lastError: null,
     isConverting: false,
+    isBatchRunning: false,
     batchProgress: null,
     profileActionMessage: null,
   });
@@ -66,10 +72,13 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
       unsubscribeProgress = await client.subscribeToConversionProgress((progress) => {
         if (state.batchProgress && state.batchProgress.phase === "running") {
           const fileIndex = state.batchProgress.currentFileIndex;
-          const file = state.files[fileIndex];
+          const fileId = activeBatchFileIds[fileIndex];
+          const file = state.files.find((candidate) => candidate.id === fileId);
           if (file) {
             file.progress = progress;
-            const completedCount = state.files.filter((f) => f.status === "completed").length;
+            const completedCount = activeBatchFileIds.filter(
+              (id) => activeBatchStatuses.get(id) === "completed",
+            ).length;
             const currentPercent = progress.percent ?? 0;
             state.batchProgress.overallPercent =
               ((completedCount + currentPercent / 100) / state.batchProgress.totalFiles) * 100;
@@ -137,6 +146,13 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
       state.outputFolder = dirname(newFiles[0].inputPath);
     }
 
+    const container = currentProfile.value?.container ?? "mp4";
+    for (const file of newFiles) {
+      file.outputPath = state.outputFolder
+        ? suggestBatchOutputPath(file.inputPath, state.outputFolder, container)
+        : suggestOutputPath(file.inputPath, container);
+    }
+
     state.lastError = null;
     await Promise.all(newFiles.map((file) => probeFile(file)));
   }
@@ -171,7 +187,9 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
   function clearFiles() {
     state.files = [];
     state.selectedFileId = null;
-    state.batchProgress = null;
+    if (!state.isBatchRunning) {
+      state.batchProgress = null;
+    }
     state.lastError = null;
   }
 
@@ -212,12 +230,20 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     }
   }
 
+  function isBatchCancelled() {
+    return state.batchProgress?.phase === "cancelled";
+  }
+
+  function applySelectedProfile(profileId: string | null) {
+    state.selectedProfileId = profileId;
+    rederiveOutputPaths();
+  }
+
   // --- Profile management ---
 
   function selectProfile(profileId: string) {
-    state.selectedProfileId = profileId;
+    applySelectedProfile(profileId);
     state.profileActionMessage = null;
-    rederiveOutputPaths();
   }
 
   function updateCurrentProfile(profile: ConversionProfile) {
@@ -232,7 +258,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     });
     const saved = await client.saveProfile(profile);
     state.profiles = upsertProfile(state.profiles, saved);
-    state.selectedProfileId = saved.id;
+    applySelectedProfile(saved.id);
     state.profileActionMessage = `Created profile "${saved.name}".`;
   }
 
@@ -247,7 +273,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     );
     const saved = await client.saveProfile(copy);
     state.profiles = upsertProfile(state.profiles, saved);
-    state.selectedProfileId = saved.id;
+    applySelectedProfile(saved.id);
     state.profileActionMessage = `Duplicated profile as "${saved.name}".`;
   }
 
@@ -262,7 +288,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
       : profile;
     const saved = await client.saveProfile(profileToSave);
     state.profiles = upsertProfile(state.profiles, saved);
-    state.selectedProfileId = saved.id;
+    applySelectedProfile(saved.id);
     state.profileActionMessage = saveAsNew
       ? `Saved as new profile "${saved.name}".`
       : `Saved profile "${saved.name}".`;
@@ -272,7 +298,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     const deletedProfile = state.profiles.find((profile) => profile.id === profileId);
     await client.deleteProfile(profileId);
     state.profiles = state.profiles.filter((profile) => profile.id !== profileId);
-    state.selectedProfileId = state.profiles[0]?.id ?? null;
+    applySelectedProfile(state.profiles[0]?.id ?? null);
     state.profileActionMessage = deletedProfile
       ? `Deleted profile "${deletedProfile.name}".`
       : "Deleted profile.";
@@ -281,100 +307,131 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
   // --- Conversion ---
 
   async function runBatchConversion() {
-    if (!currentProfile.value || state.files.length === 0) {
+    const profile = currentProfile.value;
+    if (!profile || state.files.length === 0 || state.isBatchRunning) {
       return;
     }
 
+    const filesToProcess = state.files.slice();
+    activeBatchFileIds = filesToProcess.map((file) => file.id);
+    activeBatchStatuses = new Map(filesToProcess.map((file) => [file.id, "pending"]));
+    currentBatchCompletion = new Promise<void>((resolve) => {
+      resolveCurrentBatchCompletion = resolve;
+    });
     state.isConverting = true;
+    state.isBatchRunning = true;
     state.lastError = null;
     state.batchProgress = {
       phase: "running",
       currentFileIndex: 0,
-      totalFiles: state.files.length,
+      totalFiles: filesToProcess.length,
       overallPercent: 0,
     };
 
     // Reset all file statuses
-    for (const file of state.files) {
+    for (const file of filesToProcess) {
+      activeBatchStatuses.set(file.id, "pending");
       file.status = "pending";
       file.progress = null;
     }
 
-    for (let i = 0; i < state.files.length; i++) {
-      if (state.batchProgress.phase === "cancelled") {
-        break;
-      }
-
-      const file = state.files[i];
-      state.batchProgress.currentFileIndex = i;
-      file.status = "running";
-      file.progress = {
-        phase: "running",
-        percent: 0,
-        frame: null,
-        fps: null,
-        speed: null,
-        outputTimeSeconds: 0,
-        totalDurationSeconds: file.probe?.format.durationSeconds ?? null,
-        rawLine: "Starting conversion...",
-      };
-
-      try {
-        const result = await client.runConversion({
-          inputPath: file.inputPath,
-          outputPath: file.outputPath,
-          profile: currentProfile.value,
-        });
-
-        if (!result.success) {
-          throw new Error(result.stderr || `Conversion failed with exit code ${result.exitCode}`);
+    try {
+      for (let i = 0; i < filesToProcess.length; i++) {
+        if (isBatchCancelled()) {
+          break;
         }
 
-        file.status = "completed";
+        const file = filesToProcess[i];
+        state.batchProgress.currentFileIndex = i;
+        activeBatchStatuses.set(file.id, "running");
+        file.status = "running";
         file.progress = {
-          ...(file.progress ?? {
-            frame: null,
-            fps: null,
-            speed: null,
-            outputTimeSeconds: null,
-            totalDurationSeconds: null,
-            rawLine: null,
-          }),
-          phase: "completed",
-          percent: 100,
-          rawLine: "Conversion completed.",
+          phase: "running",
+          percent: 0,
+          frame: null,
+          fps: null,
+          speed: null,
+          outputTimeSeconds: 0,
+          totalDurationSeconds: file.probe?.format.durationSeconds ?? null,
+          rawLine: "Starting conversion...",
         };
-      } catch (error) {
-        file.status = "failed";
-        file.progress = {
-          ...(file.progress ?? {
-            percent: null,
-            frame: null,
-            fps: null,
-            speed: null,
-            outputTimeSeconds: null,
-            totalDurationSeconds: null,
-            rawLine: null,
-          }),
-          phase: "failed",
-          rawLine: error instanceof Error ? error.message : String(error),
-        };
-        state.lastError = error instanceof Error ? error.message : String(error);
+
+        try {
+          const result = await client.runConversion({
+            inputPath: file.inputPath,
+            outputPath: file.outputPath,
+            profile,
+          });
+
+          if (isBatchCancelled()) {
+            break;
+          }
+
+          if (!result.success) {
+            throw new Error(result.stderr || `Conversion failed with exit code ${result.exitCode}`);
+          }
+
+          activeBatchStatuses.set(file.id, "completed");
+          file.status = "completed";
+          file.progress = {
+            ...(file.progress ?? {
+              frame: null,
+              fps: null,
+              speed: null,
+              outputTimeSeconds: null,
+              totalDurationSeconds: null,
+              rawLine: null,
+            }),
+            phase: "completed",
+            percent: 100,
+            rawLine: "Conversion completed.",
+          };
+        } catch (error) {
+          if (isBatchCancelled()) {
+            break;
+          }
+
+          activeBatchStatuses.set(file.id, "failed");
+          file.status = "failed";
+          file.progress = {
+            ...(file.progress ?? {
+              percent: null,
+              frame: null,
+              fps: null,
+              speed: null,
+              outputTimeSeconds: null,
+              totalDurationSeconds: null,
+              rawLine: null,
+            }),
+            phase: "failed",
+            rawLine: error instanceof Error ? error.message : String(error),
+          };
+          state.lastError = error instanceof Error ? error.message : String(error);
+        }
+
+        const completedCount = activeBatchFileIds.filter(
+          (id) => activeBatchStatuses.get(id) === "completed",
+        ).length;
+        state.batchProgress.overallPercent =
+          (completedCount / activeBatchFileIds.length) * 100;
       }
 
-      const completedCount = state.files.filter((f) => f.status === "completed").length;
-      state.batchProgress.overallPercent = (completedCount / state.files.length) * 100;
+      if (state.batchProgress && state.batchProgress.phase !== "cancelled") {
+        const anyFailed = activeBatchFileIds.some((id) => activeBatchStatuses.get(id) === "failed");
+        state.batchProgress.phase = anyFailed ? "failed" : "completed";
+        state.batchProgress.overallPercent = anyFailed
+          ? state.batchProgress.overallPercent
+          : 100;
+      }
+    } finally {
+      state.isConverting = false;
+      state.isBatchRunning = false;
+      activeBatchFileIds = [];
+      activeBatchStatuses = new Map();
+      resolveCurrentBatchCompletion?.();
+      resolveCurrentBatchCompletion = null;
+      currentBatchCompletion = null;
     }
-
-    if (state.batchProgress.phase !== "cancelled") {
-      const anyFailed = state.files.some((f) => f.status === "failed");
-      state.batchProgress.phase = anyFailed ? "failed" : "completed";
-      state.batchProgress.overallPercent = anyFailed
-        ? state.batchProgress.overallPercent
-        : 100;
-    }
-
-    state.isConverting = false;
   }
 
   async function cancelConversion() {
@@ -386,7 +443,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     } catch {
       // Cancel is best-effort
     }
-    state.isConverting = false;
+    await currentBatchCompletion;
   }
 
   async function openOutputFolder() {

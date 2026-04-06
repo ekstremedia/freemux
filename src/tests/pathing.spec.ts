@@ -22,7 +22,7 @@ describe("pathing utilities", () => {
     });
 
     it("extracts directory from Windows path", () => {
-      expect(dirname("C:\\Users\\video\\source.mov")).toBe("C:\\Users\\video");
+      expect(dirname("C:\\Users\\video\\source.mov")).toBe("C:/Users/video");
     });
 
     it("returns empty string if no separator", () => {
