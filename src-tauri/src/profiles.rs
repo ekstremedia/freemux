@@ -1,6 +1,6 @@
 use crate::models::ConversionProfile;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct ProfilesRepository {
     base_dir: PathBuf,
@@ -38,6 +38,11 @@ impl ProfilesRepository {
         Ok(profile)
     }
 
+    pub fn replace(&self, profiles: Vec<ConversionProfile>) -> Result<Vec<ConversionProfile>, String> {
+        self.write_all(&profiles)?;
+        Ok(profiles)
+    }
+
     pub fn delete(&self, profile_id: &str) -> Result<(), String> {
         let profiles = self
             .load()?
@@ -46,6 +51,29 @@ impl ProfilesRepository {
             .collect::<Vec<_>>();
 
         self.write_all(&profiles)
+    }
+
+    pub fn import_from(&self, import_path: &Path) -> Result<Vec<ConversionProfile>, String> {
+        let content = fs::read_to_string(import_path)
+            .map_err(|error| format!("failed to read imported profiles file: {error}"))?;
+        let profiles = serde_json::from_str::<Vec<ConversionProfile>>(&content)
+            .map_err(|error| format!("failed to parse imported profiles file: {error}"))?;
+        self.write_all(&profiles)?;
+        Ok(profiles)
+    }
+
+    pub fn export_to(&self, export_path: &Path) -> Result<(), String> {
+        let profiles = self.load()?;
+        let content = serde_json::to_string_pretty(&profiles)
+            .map_err(|error| format!("failed to encode exported profiles file: {error}"))?;
+
+        if let Some(parent) = export_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("failed to create export directory: {error}"))?;
+        }
+
+        fs::write(export_path, content)
+            .map_err(|error| format!("failed to write exported profiles file: {error}"))
     }
 
     fn write_all(&self, profiles: &[ConversionProfile]) -> Result<(), String> {
@@ -59,7 +87,7 @@ impl ProfilesRepository {
         fs::write(path, content).map_err(|error| format!("failed to write profiles file: {error}"))
     }
 
-    fn file_path(&self) -> PathBuf {
+    pub fn file_path(&self) -> PathBuf {
         self.base_dir.join("profiles.json")
     }
 }

@@ -138,3 +138,13 @@ pub struct ToolingStatus {
     pub ffmpeg: ToolDescriptor,
     pub ffprobe: ToolDescriptor,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncoderOption {
+    pub name: String,
+    pub label: String,
+    pub description: Option<String>,
+    pub media_type: String,
+    pub is_hardware_accelerated: bool,
+}

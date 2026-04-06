@@ -8,10 +8,12 @@ use serde::Deserialize;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug)]
@@ -46,6 +48,22 @@ struct RawStream {
     bit_rate: Option<String>,
     sample_rate: Option<String>,
     channels: Option<u32>,
+}
+
+pub fn available_encoders(app: &AppHandle) -> Result<Vec<crate::models::EncoderOption>, String> {
+    let ffmpeg = resolve_tool(app, "ffmpeg", "FFMPEG_PATH")?
+        .ok_or_else(|| "ffmpeg was not found. Bundle it or install it on PATH.".to_string())?;
+
+    let output = Command::new(ffmpeg.path)
+        .args(["-hide_banner", "-encoders"])
+        .output()
+        .map_err(|error| format!("failed to run ffmpeg -encoders: {error}"))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+
+    Ok(parse_available_encoders(&String::from_utf8_lossy(&output.stdout)))
 }
 
 struct FfmpegChildGuard {
@@ -357,6 +375,64 @@ fn is_executable(path: &Path) -> bool {
     }
 }
 
+fn parse_available_encoders(output: &str) -> Vec<crate::models::EncoderOption> {
+    let mut seen_separator = false;
+    let mut encoders = Vec::new();
+
+    for line in output.lines() {
+        if !seen_separator {
+            if line.trim_start().starts_with("------") {
+                seen_separator = true;
+            }
+            continue;
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let mut parts = trimmed.split_whitespace();
+        let flags = match parts.next() {
+            Some(flags) if flags.len() >= 1 => flags,
+            _ => continue,
+        };
+        let name = match parts.next() {
+            Some(name) => name,
+            None => continue,
+        };
+
+        let media_type = match flags.chars().next() {
+            Some('V') => "video",
+            Some('A') => "audio",
+            _ => continue,
+        };
+
+        let description = parts.collect::<Vec<_>>().join(" ");
+        encoders.push(crate::models::EncoderOption {
+            name: name.to_string(),
+            label: name.to_string(),
+            description: if description.is_empty() {
+                None
+            } else {
+                Some(description)
+            },
+            media_type: media_type.to_string(),
+            is_hardware_accelerated: is_hardware_encoder(name),
+        });
+    }
+
+    encoders
+}
+
+fn is_hardware_encoder(name: &str) -> bool {
+    name.ends_with("_nvenc")
+        || name.ends_with("_qsv")
+        || name.ends_with("_vaapi")
+        || name.ends_with("_videotoolbox")
+        || name.ends_with("_amf")
+}
+
 fn parse_u64(value: Option<String>) -> Option<u64> {
     value.and_then(|item| item.parse::<u64>().ok())
 }
@@ -559,7 +635,7 @@ pub fn generate_thumbnail(app: &AppHandle, input_path: &str) -> Result<String, S
     let ffmpeg = resolve_tool(app, "ffmpeg", "FFMPEG_PATH")?
         .ok_or_else(|| "ffmpeg was not found. Bundle it or install it on PATH.".to_string())?;
 
-    let output = Command::new(ffmpeg.path)
+    let mut child = Command::new(ffmpeg.path)
         .args([
             "-i",
             input_path,
@@ -576,14 +652,83 @@ pub fn generate_thumbnail(app: &AppHandle, input_path: &str) -> Result<String, S
             "pipe:1",
         ])
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("failed to run ffmpeg for thumbnail: {error}"))?;
 
-    if !output.status.success() || output.stdout.is_empty() {
-        return Err("failed to generate thumbnail".to_string());
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to capture ffmpeg thumbnail stdout".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "failed to capture ffmpeg thumbnail stderr".to_string())?;
+
+    let stdout_reader = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let mut stdout = stdout;
+        let _ = stdout.read_to_end(&mut buffer);
+        buffer
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let mut stderr = stderr;
+        let _ = stderr.read_to_end(&mut buffer);
+        buffer
+    });
+
+    let timeout = Duration::from_secs(10);
+    let deadline = Instant::now() + timeout;
+    let (status, timed_out) = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break (status, false),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let status = child
+                        .wait()
+                        .map_err(|error| format!("failed to wait for timed out thumbnail ffmpeg: {error}"))?;
+                    break (status, true);
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let stdout = stdout_reader.join().unwrap_or_default();
+                let stderr = stderr_reader.join().unwrap_or_default();
+                let stderr_text = String::from_utf8_lossy(&stderr).trim().to_string();
+                let details = if stderr_text.is_empty() {
+                    format!("failed to wait for ffmpeg thumbnail process: {error}")
+                } else {
+                    format!("failed to wait for ffmpeg thumbnail process: {error}; stderr: {stderr_text}")
+                };
+                let _ = stdout;
+                return Err(details);
+            }
+        }
+    };
+
+    let output_stdout = stdout_reader.join().unwrap_or_default();
+    let output_stderr = stderr_reader.join().unwrap_or_default();
+    let stderr_text = String::from_utf8_lossy(&output_stderr).trim().to_string();
+
+    if timed_out || !status.success() || output_stdout.is_empty() {
+        let mut message = if timed_out {
+            "failed to generate thumbnail: ffmpeg timed out".to_string()
+        } else {
+            format!("failed to generate thumbnail: ffmpeg exited with status {status}")
+        };
+        if !stderr_text.is_empty() {
+            message.push_str(&format!("; stderr: {stderr_text}"));
+        }
+        if output_stdout.is_empty() {
+            message.push_str("; ffmpeg produced no thumbnail output");
+        }
+        return Err(message);
     }
 
-    let base64 = BASE64.encode(&output.stdout);
+    let base64 = BASE64.encode(&output_stdout);
     Ok(format!("data:image/jpeg;base64,{base64}"))
 }

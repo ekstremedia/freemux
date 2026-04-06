@@ -9,6 +9,14 @@ export interface ToolingStatus {
   ffprobe: ToolDescriptor;
 }
 
+export interface EncoderOption {
+  name: string;
+  label: string;
+  description: string | null;
+  mediaType: "video" | "audio";
+  isHardwareAccelerated: boolean;
+}
+
 export interface MediaFormatInfo {
   path: string;
   container: string;
@@ -62,8 +70,12 @@ export interface SourceFile {
   outputPath: string;
   probe: MediaProbe | null;
   isProbing: boolean;
+  isGeneratingThumbnail: boolean;
   thumbnail: string | null;
   progress: ConversionProgress | null;
+  conversionStartedAt: number | null;
+  conversionCompletedAt: number | null;
+  outputSizeBytes: number | null;
   status: SourceFileStatus;
 }
 
@@ -74,4 +86,6 @@ export interface BatchProgress {
   currentFileIndex: number;
   totalFiles: number;
   overallPercent: number;
+  startedAt: number | null;
+  completedAt: number | null;
 }

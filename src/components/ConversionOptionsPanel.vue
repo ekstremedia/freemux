@@ -1,12 +1,49 @@
 <script setup lang="ts">
-import type { ConversionProfile, ResolutionMode } from "@/domain/conversion";
+import { computed, ref, watch } from "vue";
+import {
+  getAudioCodecBehavior,
+  getVideoCodecBehavior,
+  getVideoRateControlMode,
+  type ConversionProfile,
+  type ResolutionMode,
+  type VideoRateControlMode,
+} from "@/domain/conversion";
+import type { EncoderOption } from "@/domain/media";
 
 const props = defineProps<{
   profiles: ConversionProfile[];
   selectedProfileId: string | null;
   profile: ConversionProfile | null;
+  profilesFilePath: string | null;
   profileActionMessage: string | null;
+  videoCodecOptions: EncoderOption[];
+  audioCodecOptions: EncoderOption[];
 }>();
+
+const isVideoCodecMenuOpen = ref(false);
+const isAudioCodecMenuOpen = ref(false);
+const isFrameRateMenuOpen = ref(false);
+const isPixelFormatMenuOpen = ref(false);
+const videoCodecQuery = ref("");
+const audioCodecQuery = ref("");
+const frameRateQuery = ref("");
+const pixelFormatQuery = ref("");
+const isVideoCodecSearching = ref(false);
+const isAudioCodecSearching = ref(false);
+const isFrameRateSearching = ref(false);
+const isPixelFormatSearching = ref(false);
+
+const FRAME_RATE_OPTIONS = ["23.976", "24", "25", "29.97", "30", "50", "59.94", "60"];
+const PIXEL_FORMAT_OPTIONS = [
+  "yuv420p",
+  "yuv422p",
+  "yuv444p",
+  "yuv420p10le",
+  "yuv422p10le",
+  "yuv444p10le",
+  "nv12",
+  "p010le",
+];
 
 const emit = defineEmits<{
   selectProfile: [profileId: string];
@@ -14,8 +51,77 @@ const emit = defineEmits<{
   saveProfile: [saveAsNew?: boolean];
   deleteProfile: [profileId: string];
   duplicateProfile: [];
+  importProfiles: [];
+  exportProfiles: [];
+  openProfilesJson: [];
   updateProfile: [profile: ConversionProfile];
 }>();
+
+const videoCodecBehavior = computed(() =>
+  props.profile ? getVideoCodecBehavior(props.profile.video.codec) : null,
+);
+const audioCodecBehavior = computed(() =>
+  props.profile ? getAudioCodecBehavior(props.profile.audio.codec) : null,
+);
+const videoRateControlMode = computed<VideoRateControlMode>(() =>
+  props.profile ? getVideoRateControlMode(props.profile) : "bitrate",
+);
+const filteredVideoCodecOptions = computed(() =>
+  filterCodecOptions(props.videoCodecOptions, isVideoCodecSearching.value ? videoCodecQuery.value : ""),
+);
+const filteredAudioCodecOptions = computed(() =>
+  filterCodecOptions(props.audioCodecOptions, isAudioCodecSearching.value ? audioCodecQuery.value : ""),
+);
+const filteredFrameRateOptions = computed(() =>
+  filterStringOptions(FRAME_RATE_OPTIONS, isFrameRateSearching.value ? frameRateQuery.value : ""),
+);
+const filteredPixelFormatOptions = computed(() =>
+  filterStringOptions(PIXEL_FORMAT_OPTIONS, isPixelFormatSearching.value ? pixelFormatQuery.value : ""),
+);
+
+watch(
+  () => props.profile?.video.codec ?? "",
+  (codec) => {
+    if (!isVideoCodecMenuOpen.value) {
+      videoCodecQuery.value = codec;
+      isVideoCodecSearching.value = false;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.profile?.audio.codec ?? "",
+  (codec) => {
+    if (!isAudioCodecMenuOpen.value) {
+      audioCodecQuery.value = codec;
+      isAudioCodecSearching.value = false;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => (props.profile?.video.frameRate != null ? String(props.profile.video.frameRate) : ""),
+  (frameRate) => {
+    if (!isFrameRateMenuOpen.value) {
+      frameRateQuery.value = frameRate;
+      isFrameRateSearching.value = false;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.profile?.video.pixelFormat ?? "",
+  (pixelFormat) => {
+    if (!isPixelFormatMenuOpen.value) {
+      pixelFormatQuery.value = pixelFormat;
+      isPixelFormatSearching.value = false;
+    }
+  },
+  { immediate: true },
+);
 
 function update<K extends keyof ConversionProfile>(key: K, value: ConversionProfile[K]) {
   if (!props.profile) {
@@ -81,6 +187,213 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
     },
   });
 }
+
+function selectVideoCodec(codec: string) {
+  if (!props.profile) {
+    return;
+  }
+
+  const behavior = getVideoCodecBehavior(codec);
+  emit("updateProfile", {
+    ...props.profile,
+    video: {
+      ...props.profile.video,
+      codec,
+      bitrateKbps: behavior.supportsBitrate ? props.profile.video.bitrateKbps : null,
+      crf: behavior.supportsCrf ? props.profile.video.crf : null,
+      preset: behavior.supportsPreset ? props.profile.video.preset : null,
+      pixelFormat: behavior.supportsPixelFormat ? props.profile.video.pixelFormat : null,
+      frameRate: behavior.supportsFrameRate ? props.profile.video.frameRate : null,
+      resolution: behavior.supportsResolution
+        ? props.profile.video.resolution
+        : {
+            mode: "source",
+            width: null,
+            height: null,
+          },
+    },
+  });
+  videoCodecQuery.value = codec;
+  isVideoCodecSearching.value = false;
+  isVideoCodecMenuOpen.value = false;
+}
+
+function selectAudioCodec(codec: string) {
+  if (!props.profile) {
+    return;
+  }
+
+  const behavior = getAudioCodecBehavior(codec);
+  emit("updateProfile", {
+    ...props.profile,
+    audio: {
+      ...props.profile.audio,
+      codec,
+      bitrateKbps: behavior.supportsBitrate ? props.profile.audio.bitrateKbps : null,
+      channels: behavior.supportsChannels ? props.profile.audio.channels : null,
+      sampleRate: behavior.supportsSampleRate ? props.profile.audio.sampleRate : null,
+    },
+  });
+  audioCodecQuery.value = codec;
+  isAudioCodecSearching.value = false;
+  isAudioCodecMenuOpen.value = false;
+}
+
+function handleVideoCodecInput(codec: string) {
+  videoCodecQuery.value = codec;
+  isVideoCodecSearching.value = true;
+  isVideoCodecMenuOpen.value = true;
+  updateVideo("codec", codec);
+}
+
+function handleAudioCodecInput(codec: string) {
+  audioCodecQuery.value = codec;
+  isAudioCodecSearching.value = true;
+  isAudioCodecMenuOpen.value = true;
+  updateAudio("codec", codec);
+}
+
+function setVideoRateControlMode(mode: VideoRateControlMode) {
+  if (!props.profile) {
+    return;
+  }
+
+  emit("updateProfile", {
+    ...props.profile,
+    video: {
+      ...props.profile.video,
+      crf: mode === "quality" ? (props.profile.video.crf ?? 21) : null,
+      bitrateKbps: mode === "bitrate" ? props.profile.video.bitrateKbps : null,
+    },
+  });
+}
+
+function updateVideoBitrate(value: string) {
+  if (!props.profile) {
+    return;
+  }
+
+  emit("updateProfile", {
+    ...props.profile,
+    video: {
+      ...props.profile.video,
+      bitrateKbps: value ? Number(value) : null,
+      crf: videoCodecBehavior.value?.supportsCrf ? null : props.profile.video.crf,
+    },
+  });
+}
+
+function updateVideoCrf(value: string) {
+  if (!props.profile) {
+    return;
+  }
+
+  emit("updateProfile", {
+    ...props.profile,
+    video: {
+      ...props.profile.video,
+      crf: value ? Number(value) : null,
+      bitrateKbps: value ? null : props.profile.video.bitrateKbps,
+    },
+  });
+}
+
+function openFrameRateMenu() {
+  frameRateQuery.value = props.profile?.video.frameRate != null ? String(props.profile.video.frameRate) : "";
+  isFrameRateSearching.value = false;
+  isFrameRateMenuOpen.value = true;
+}
+
+function closeFrameRateMenu() {
+  isFrameRateMenuOpen.value = false;
+  frameRateQuery.value = props.profile?.video.frameRate != null ? String(props.profile.video.frameRate) : "";
+  isFrameRateSearching.value = false;
+}
+
+function handleFrameRateInput(value: string) {
+  frameRateQuery.value = value;
+  isFrameRateSearching.value = true;
+  updateVideo("frameRate", value ? Number(value) : null);
+  isFrameRateMenuOpen.value = true;
+}
+
+function selectFrameRate(value: string) {
+  frameRateQuery.value = value;
+  isFrameRateSearching.value = false;
+  updateVideo("frameRate", value ? Number(value) : null);
+  isFrameRateMenuOpen.value = false;
+}
+
+function openPixelFormatMenu() {
+  pixelFormatQuery.value = props.profile?.video.pixelFormat ?? "";
+  isPixelFormatSearching.value = false;
+  isPixelFormatMenuOpen.value = true;
+}
+
+function closePixelFormatMenu() {
+  isPixelFormatMenuOpen.value = false;
+  pixelFormatQuery.value = props.profile?.video.pixelFormat ?? "";
+  isPixelFormatSearching.value = false;
+}
+
+function handlePixelFormatInput(value: string) {
+  pixelFormatQuery.value = value;
+  isPixelFormatSearching.value = true;
+  updateVideo("pixelFormat", value || null);
+  isPixelFormatMenuOpen.value = true;
+}
+
+function selectPixelFormat(value: string) {
+  pixelFormatQuery.value = value;
+  isPixelFormatSearching.value = false;
+  updateVideo("pixelFormat", value || null);
+  isPixelFormatMenuOpen.value = false;
+}
+
+function openVideoCodecMenu() {
+  videoCodecQuery.value = props.profile?.video.codec ?? "";
+  isVideoCodecSearching.value = false;
+  isVideoCodecMenuOpen.value = true;
+}
+
+function openAudioCodecMenu() {
+  audioCodecQuery.value = props.profile?.audio.codec ?? "";
+  isAudioCodecSearching.value = false;
+  isAudioCodecMenuOpen.value = true;
+}
+
+function closeVideoCodecMenu() {
+  isVideoCodecMenuOpen.value = false;
+  videoCodecQuery.value = props.profile?.video.codec ?? "";
+  isVideoCodecSearching.value = false;
+}
+
+function closeAudioCodecMenu() {
+  isAudioCodecMenuOpen.value = false;
+  audioCodecQuery.value = props.profile?.audio.codec ?? "";
+  isAudioCodecSearching.value = false;
+}
+
+function filterCodecOptions(options: EncoderOption[], query: string): EncoderOption[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return options;
+  }
+
+  return options.filter((option) => {
+    const haystack = [option.name, option.label, option.description ?? ""].join(" ").toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
+}
+
+function filterStringOptions(options: string[], query: string): string[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return options;
+  }
+
+  return options.filter((option) => option.toLowerCase().includes(normalizedQuery));
+}
 </script>
 
 <template>
@@ -116,6 +429,9 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('duplicateProfile')">Duplicate</button>
           <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('saveProfile', false)">Save</button>
           <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('saveProfile', true)">Save as new</button>
+          <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('importProfiles')">Import JSON</button>
+          <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('exportProfiles')">Export JSON</button>
+          <button type="button" class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8" @click="$emit('openProfilesJson')">Open JSON</button>
           <button
             type="button"
             class="rounded-xl border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm font-medium text-rose-200 transition hover:border-rose-300/35 hover:bg-rose-300/14 disabled:cursor-not-allowed disabled:opacity-50"
@@ -133,6 +449,11 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           class="m-0 rounded-xl border border-emerald-300/20 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-200"
         >
           {{ profileActionMessage }}
+        </p>
+
+        <p class="m-0 text-sm text-stone-500">
+          Profiles are stored in a shared JSON file so you can import, export, and move them between machines.
+          <span v-if="profilesFilePath" class="text-stone-400"> Current file: {{ profilesFilePath }}</span>
         </p>
       </div>
 
@@ -166,37 +487,86 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <label class="grid gap-1.5 text-sm text-stone-400">
           Video codec
+          <div class="relative">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <input
+                class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
+                :value="videoCodecQuery"
+                spellcheck="false"
+                @focus="openVideoCodecMenu"
+                @keydown.esc="closeVideoCodecMenu"
+                @input="handleVideoCodecInput(($event.target as HTMLInputElement).value)"
+              />
+              <button
+                type="button"
+                class="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-200 transition hover:border-amber-300/20 hover:bg-white/8"
+                :aria-expanded="isVideoCodecMenuOpen"
+                @click="isVideoCodecMenuOpen ? closeVideoCodecMenu() : openVideoCodecMenu()"
+              >
+                Browse
+              </button>
+            </div>
+
+            <div
+              v-if="isVideoCodecMenuOpen"
+              class="absolute z-10 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/96 p-2 shadow-[0_24px_60px_rgba(0,0,0,0.32)] backdrop-blur-xl"
+            >
+              <button
+                v-for="codec in filteredVideoCodecOptions"
+                :key="codec.name"
+                type="button"
+                class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-stone-200 transition hover:bg-white/8"
+                @mousedown.prevent
+                @click="selectVideoCodec(codec.name)"
+              >
+                <span>{{ codec.label }}</span>
+                <span v-if="codec.isHardwareAccelerated" class="text-xs uppercase tracking-wide text-amber-200">
+                  hardware
+                </span>
+              </button>
+              <div
+                v-if="filteredVideoCodecOptions.length === 0"
+                class="px-3 py-2 text-sm text-stone-500"
+              >
+                No matching codecs.
+              </div>
+            </div>
+          </div>
+        </label>
+
+        <label
+          v-if="videoCodecBehavior?.supportsCrf"
+          class="grid gap-1.5 text-sm text-stone-400"
+        >
+          Rate control
           <select
             class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
-            :value="profile.video.codec"
-            @change="updateVideo('codec', ($event.target as HTMLSelectElement).value)"
+            :value="videoRateControlMode"
+            @change="setVideoRateControlMode(($event.target as HTMLSelectElement).value as VideoRateControlMode)"
           >
-            <option value="libx264">libx264</option>
-            <option value="libx265">libx265</option>
-            <option value="libvpx-vp9">libvpx-vp9</option>
-            <option value="copy">copy</option>
+            <option value="quality">Quality (CRF)</option>
+            <option value="bitrate">Target bitrate</option>
           </select>
         </label>
 
-        <label class="grid gap-1.5 text-sm text-stone-400">
+        <label
+          v-if="videoCodecBehavior?.supportsBitrate && (!videoCodecBehavior.supportsCrf || videoRateControlMode === 'bitrate')"
+          class="grid gap-1.5 text-sm text-stone-400"
+        >
           Video bitrate (kbps)
           <input
             class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
             type="number"
             min="0"
             :value="profile.video.bitrateKbps ?? ''"
-            @input="
-              updateVideo(
-                'bitrateKbps',
-                ($event.target as HTMLInputElement).value
-                  ? Number(($event.target as HTMLInputElement).value)
-                  : null,
-              )
-            "
+            @input="updateVideoBitrate(($event.target as HTMLInputElement).value)"
           />
         </label>
 
-        <label class="grid gap-1.5 text-sm text-stone-400">
+        <label
+          v-if="videoCodecBehavior?.supportsCrf && videoRateControlMode === 'quality'"
+          class="grid gap-1.5 text-sm text-stone-400"
+        >
           CRF
           <input
             class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
@@ -204,20 +574,16 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
             min="0"
             max="51"
             :value="profile.video.crf ?? ''"
-            @input="
-              updateVideo(
-                'crf',
-                ($event.target as HTMLInputElement).value
-                  ? Number(($event.target as HTMLInputElement).value)
-                  : null,
-              )
-            "
+            @input="updateVideoCrf(($event.target as HTMLInputElement).value)"
           />
         </label>
       </div>
 
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <label class="grid gap-1.5 text-sm text-stone-400">
+        <label
+          v-if="videoCodecBehavior?.supportsPreset"
+          class="grid gap-1.5 text-sm text-stone-400"
+        >
           Preset
           <select
             class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
@@ -237,41 +603,118 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           </select>
         </label>
 
-        <label class="grid gap-1.5 text-sm text-stone-400">
+        <label
+          v-if="videoCodecBehavior?.supportsFrameRate"
+          class="grid gap-1.5 text-sm text-stone-400"
+        >
           Frame rate
-          <input
-            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
-            type="number"
-            min="1"
-            step="0.01"
-            :value="profile.video.frameRate ?? ''"
-            @input="
-              updateVideo(
-                'frameRate',
-                ($event.target as HTMLInputElement).value
-                  ? Number(($event.target as HTMLInputElement).value)
-                  : null,
-              )
-            "
-          />
+          <div class="relative">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <input
+                class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
+                type="text"
+                inputmode="decimal"
+                :value="frameRateQuery"
+                spellcheck="false"
+                @focus="openFrameRateMenu"
+                @keydown.esc="closeFrameRateMenu"
+                @input="handleFrameRateInput(($event.target as HTMLInputElement).value)"
+              />
+              <button
+                type="button"
+                class="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-200 transition hover:border-amber-300/20 hover:bg-white/8"
+                :aria-expanded="isFrameRateMenuOpen"
+                @click="isFrameRateMenuOpen ? closeFrameRateMenu() : openFrameRateMenu()"
+              >
+                Browse
+              </button>
+            </div>
+
+            <div
+              v-if="isFrameRateMenuOpen"
+              class="absolute z-10 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/96 p-2 shadow-[0_24px_60px_rgba(0,0,0,0.32)] backdrop-blur-xl"
+            >
+              <button
+                v-for="option in filteredFrameRateOptions"
+                :key="option"
+                type="button"
+                class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-stone-200 transition hover:bg-white/8"
+                @mousedown.prevent
+                @click="selectFrameRate(option)"
+              >
+                <span>{{ option }}</span>
+              </button>
+              <div
+                v-if="filteredFrameRateOptions.length === 0"
+                class="px-3 py-2 text-sm text-stone-500"
+              >
+                No matching frame rates.
+              </div>
+            </div>
+          </div>
         </label>
 
-        <label class="grid gap-1.5 text-sm text-stone-400">
+        <label
+          v-if="videoCodecBehavior?.supportsPixelFormat"
+          class="grid gap-1.5 text-sm text-stone-400"
+        >
           Pixel format
-          <input
-            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
-            :value="profile.video.pixelFormat ?? ''"
-            @input="
-              updateVideo(
-                'pixelFormat',
-                ($event.target as HTMLInputElement).value || null,
-              )
-            "
-          />
+          <div class="relative">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <input
+                class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
+                :value="pixelFormatQuery"
+                spellcheck="false"
+                @focus="openPixelFormatMenu"
+                @keydown.esc="closePixelFormatMenu"
+                @input="handlePixelFormatInput(($event.target as HTMLInputElement).value)"
+              />
+              <button
+                type="button"
+                class="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-200 transition hover:border-amber-300/20 hover:bg-white/8"
+                :aria-expanded="isPixelFormatMenuOpen"
+                @click="isPixelFormatMenuOpen ? closePixelFormatMenu() : openPixelFormatMenu()"
+              >
+                Browse
+              </button>
+            </div>
+
+            <div
+              v-if="isPixelFormatMenuOpen"
+              class="absolute z-10 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/96 p-2 shadow-[0_24px_60px_rgba(0,0,0,0.32)] backdrop-blur-xl"
+            >
+              <button
+                v-for="option in filteredPixelFormatOptions"
+                :key="option"
+                type="button"
+                class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-stone-200 transition hover:bg-white/8"
+                @mousedown.prevent
+                @click="selectPixelFormat(option)"
+              >
+                <span>{{ option }}</span>
+              </button>
+              <div
+                v-if="filteredPixelFormatOptions.length === 0"
+                class="px-3 py-2 text-sm text-stone-500"
+              >
+                No matching pixel formats.
+              </div>
+            </div>
+          </div>
         </label>
       </div>
 
-      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <p
+        v-if="videoCodecBehavior?.isCopy"
+        class="m-0 rounded-xl border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-sm text-amber-100"
+      >
+        Stream copy bypasses re-encoding, so bitrate, CRF, preset, scaling, pixel format, and frame-rate controls are disabled.
+      </p>
+
+      <div
+        v-if="videoCodecBehavior?.supportsResolution"
+        class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+      >
         <label class="grid gap-1.5 text-sm text-stone-400">
           Resolution mode
           <select
@@ -329,21 +772,54 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <label class="grid gap-1.5 text-sm text-stone-400">
           Audio codec
-          <select
-            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
-            :value="profile.audio.codec"
-            @change="updateAudio('codec', ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="aac">aac</option>
-            <option value="libopus">libopus</option>
-            <option value="mp3">mp3</option>
-            <option value="pcm_s16le">pcm_s16le</option>
-            <option value="copy">copy</option>
-            <option value="none">none</option>
-          </select>
+          <div class="relative">
+            <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <input
+                class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
+                :value="audioCodecQuery"
+                spellcheck="false"
+                @focus="openAudioCodecMenu"
+                @keydown.esc="closeAudioCodecMenu"
+                @input="handleAudioCodecInput(($event.target as HTMLInputElement).value)"
+              />
+              <button
+                type="button"
+                class="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-200 transition hover:border-amber-300/20 hover:bg-white/8"
+                :aria-expanded="isAudioCodecMenuOpen"
+                @click="isAudioCodecMenuOpen ? closeAudioCodecMenu() : openAudioCodecMenu()"
+              >
+                Browse
+              </button>
+            </div>
+
+            <div
+              v-if="isAudioCodecMenuOpen"
+              class="absolute z-10 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/96 p-2 shadow-[0_24px_60px_rgba(0,0,0,0.32)] backdrop-blur-xl"
+            >
+              <button
+                v-for="codec in filteredAudioCodecOptions"
+                :key="codec.name"
+                type="button"
+                class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-stone-200 transition hover:bg-white/8"
+                @mousedown.prevent
+                @click="selectAudioCodec(codec.name)"
+              >
+                <span>{{ codec.label }}</span>
+              </button>
+              <div
+                v-if="filteredAudioCodecOptions.length === 0"
+                class="px-3 py-2 text-sm text-stone-500"
+              >
+                No matching codecs.
+              </div>
+            </div>
+          </div>
         </label>
 
-        <label class="grid gap-1.5 text-sm text-stone-400">
+        <label
+          v-if="audioCodecBehavior?.supportsBitrate"
+          class="grid gap-1.5 text-sm text-stone-400"
+        >
           Audio bitrate (kbps)
           <input
             class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
@@ -361,7 +837,10 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
           />
         </label>
 
-        <label class="grid gap-1.5 text-sm text-stone-400">
+        <label
+          v-if="audioCodecBehavior?.supportsChannels"
+          class="grid gap-1.5 text-sm text-stone-400"
+        >
           Channels
           <input
             class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"
@@ -381,8 +860,22 @@ function updateResolution<K extends keyof ConversionProfile["video"]["resolution
         </label>
       </div>
 
+      <p
+        v-if="audioCodecBehavior?.isCopy || audioCodecBehavior?.isDisabled"
+        class="m-0 rounded-xl border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-sm text-amber-100"
+      >
+        {{
+          audioCodecBehavior.isDisabled
+            ? "Audio is disabled for this profile, so bitrate and channel controls are hidden."
+            : "Audio stream copy bypasses re-encoding, so bitrate and channel controls are disabled."
+        }}
+      </p>
+
       <div class="grid gap-4 xl:grid-cols-2">
-        <label class="grid gap-1.5 text-sm text-stone-400">
+        <label
+          v-if="audioCodecBehavior?.supportsSampleRate"
+          class="grid gap-1.5 text-sm text-stone-400"
+        >
           Sample rate
           <input
             class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-stone-100 outline-none transition focus:border-amber-300/30"

@@ -1,4 +1,4 @@
-import type { ConversionProfile } from "@/domain/conversion";
+import { getVideoCodecBehavior, type ConversionProfile } from "@/domain/conversion";
 
 export function buildFfmpegArgs(
   inputPath: string,
@@ -18,28 +18,28 @@ export function buildFfmpegArgs(
     args.push("-c:v", "copy");
   } else {
     args.push("-c:v", profile.video.codec);
+    const videoBehavior = getVideoCodecBehavior(profile.video.codec);
 
-    if (profile.video.bitrateKbps) {
+    if (videoBehavior.supportsCrf && profile.video.crf !== null) {
+      args.push("-crf", String(profile.video.crf));
+    } else if (profile.video.bitrateKbps) {
       args.push("-b:v", `${profile.video.bitrateKbps}k`);
     }
 
-    if (profile.video.crf !== null) {
-      args.push("-crf", String(profile.video.crf));
-    }
-
-    if (profile.video.preset) {
+    if (videoBehavior.supportsPreset && profile.video.preset) {
       args.push("-preset", profile.video.preset);
     }
 
-    if (profile.video.frameRate) {
+    if (videoBehavior.supportsFrameRate && profile.video.frameRate) {
       args.push("-r", String(profile.video.frameRate));
     }
 
-    if (profile.video.pixelFormat) {
+    if (videoBehavior.supportsPixelFormat && profile.video.pixelFormat) {
       args.push("-pix_fmt", profile.video.pixelFormat);
     }
 
     if (
+      videoBehavior.supportsResolution &&
       profile.video.resolution.mode === "custom" &&
       profile.video.resolution.width &&
       profile.video.resolution.height

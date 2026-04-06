@@ -72,7 +72,7 @@ defineEmits<{
         <!-- Video preview -->
         <VideoPreview
           :thumbnail="selectedFile?.thumbnail ?? null"
-          :is-probing="selectedFile?.isProbing ?? false"
+          :is-generating-thumbnail="selectedFile?.isGeneratingThumbnail ?? false"
           @open-in-player="selectedFile && $emit('openInPlayer', selectedFile.inputPath)"
         />
       </div>

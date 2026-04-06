@@ -73,12 +73,18 @@ onUnmounted(() => {
           :profiles="store.state.profiles"
           :selected-profile-id="store.state.selectedProfileId"
           :profile="store.currentProfile.value"
+          :profiles-file-path="store.state.profilesFilePath"
           :profile-action-message="store.state.profileActionMessage"
+          :video-codec-options="store.videoCodecOptions.value"
+          :audio-codec-options="store.audioCodecOptions.value"
           @select-profile="store.selectProfile"
           @create-profile="store.createNewProfile"
           @save-profile="store.saveCurrentProfile"
           @delete-profile="store.deleteProfile"
           @duplicate-profile="store.duplicateCurrentProfile"
+          @import-profiles="store.importProfiles"
+          @export-profiles="store.exportProfiles"
+          @open-profiles-json="store.openProfilesJson"
           @update-profile="store.updateCurrentProfile"
         />
       </section>

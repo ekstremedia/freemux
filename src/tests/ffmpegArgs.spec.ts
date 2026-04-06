@@ -73,4 +73,26 @@ describe("buildFfmpegArgs", () => {
     expect(args).toContain("-c:a");
     expect(args).toContain("pcm_s16le");
   });
+
+  it("prefers CRF over bitrate for CRF-capable codecs", () => {
+    const profile = createDefaultProfile({
+      video: {
+        codec: "libx264",
+        bitrateKbps: 4500,
+        crf: 20,
+        preset: "medium",
+        frameRate: null,
+        pixelFormat: "yuv420p",
+        resolution: {
+          mode: "source",
+          width: null,
+          height: null,
+        },
+      },
+    });
+
+    const args = buildFfmpegArgs("/tmp/input.mov", "/tmp/output.mp4", profile);
+    expect(args).toContain("-crf");
+    expect(args).not.toContain("-b:v");
+  });
 });

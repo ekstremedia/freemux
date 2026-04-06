@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineProps<{
   thumbnail: string | null;
-  isProbing: boolean;
+  isGeneratingThumbnail: boolean;
 }>();
 
 defineEmits<{
@@ -26,7 +26,7 @@ defineEmits<{
       </button>
     </template>
 
-    <div v-else-if="isProbing" class="px-6 py-16 text-center text-sm text-stone-500">
+    <div v-else-if="isGeneratingThumbnail" class="px-6 py-16 text-center text-sm text-stone-500">
       Generating preview...
     </div>
 

@@ -117,6 +117,66 @@ function fileStatusClass(file: SourceFile): string {
       return "text-stone-600";
   }
 }
+
+function joinOutputPath(outputFolder: string, fileName: string): string {
+  return outputFolder
+    ? `${outputFolder}${outputFolder.includes("\\") ? "\\" : "/"}${fileName}`
+    : fileName;
+}
+
+function fileCompletionSummary(file: SourceFile): string {
+  const parts: string[] = [];
+  const elapsedSeconds =
+    file.conversionStartedAt !== null && file.conversionCompletedAt !== null
+      ? Math.max(0, (file.conversionCompletedAt - file.conversionStartedAt) / 1000)
+      : null;
+
+  if (elapsedSeconds !== null) {
+    parts.push(`took ${formatDuration(elapsedSeconds)}`);
+  }
+
+  if (file.outputSizeBytes !== null) {
+    parts.push(formatFileSize(file.outputSizeBytes));
+
+    const sourceSize = file.probe?.format.sizeBytes ?? null;
+    if (sourceSize !== null) {
+      const diff = file.outputSizeBytes - sourceSize;
+      const prefix = diff === 0 ? "\u00B10" : diff > 0 ? "+" : "-";
+      parts.push(`${prefix}${formatFileSize(Math.abs(diff))} vs source`);
+    }
+  }
+
+  return parts.join(" \u00B7 ");
+}
+
+function fileProgressPercent(file: SourceFile): number {
+  if (file.status === "completed") {
+    return 100;
+  }
+
+  return Math.max(0, Math.min(100, file.progress?.percent ?? 0));
+}
+
+function batchCompletionSummary(files: SourceFile[], batchProgress: BatchProgress): string {
+  const completedCount = files.filter((file) => file.status === "completed").length;
+  const failedCount = files.filter((file) => file.status === "failed").length;
+  const elapsedSeconds =
+    batchProgress.startedAt !== null && batchProgress.completedAt !== null
+      ? Math.max(0, (batchProgress.completedAt - batchProgress.startedAt) / 1000)
+      : null;
+
+  const parts = [`${completedCount}/${batchProgress.totalFiles} completed`];
+
+  if (failedCount > 0) {
+    parts.push(`${failedCount} failed`);
+  }
+
+  if (elapsedSeconds !== null) {
+    parts.push(`took ${formatDuration(elapsedSeconds)}`);
+  }
+
+  return parts.join(" \u00B7 ");
+}
 </script>
 
 <template>
@@ -182,9 +242,7 @@ function fileStatusClass(file: SourceFile): string {
                 $emit(
                   'updateFileOutputPath',
                   file.id,
-                  outputFolder
-                    ? outputFolder + (outputFolder.includes('\\\\') ? '\\\\' : '/') + ($event.target as HTMLInputElement).value
-                    : ($event.target as HTMLInputElement).value,
+                  joinOutputPath(outputFolder, ($event.target as HTMLInputElement).value),
                 )
               "
             />
@@ -250,35 +308,61 @@ function fileStatusClass(file: SourceFile): string {
           <div
             v-for="file in files"
             :key="file.id"
-            class="flex items-center gap-3 rounded-xl border border-white/5 bg-white/3 px-3 py-2"
+            class="rounded-xl border border-white/5 bg-white/3 px-3 py-2"
           >
-            <span :class="fileStatusClass(file)" class="w-4 text-center text-sm font-bold">{{ fileStatusIcon(file) }}</span>
-            <span class="min-w-0 flex-1 truncate text-sm text-stone-200">{{ basename(file.outputPath) }}</span>
+            <div class="flex items-center gap-3">
+              <span :class="fileStatusClass(file)" class="w-4 text-center text-sm font-bold">{{ fileStatusIcon(file) }}</span>
+              <span class="min-w-0 flex-1 truncate text-sm text-stone-200">{{ basename(file.outputPath) }}</span>
 
-            <template v-if="file.status === 'running' && file.progress">
-              <span class="text-xs text-stone-400">{{ file.progress.percent != null ? `${Math.round(file.progress.percent)}%` : "" }}</span>
-              <span v-if="file.progress.fps" class="text-xs text-stone-500">{{ file.progress.fps.toFixed(0) }}fps</span>
-              <span v-if="file.progress.speed" class="text-xs text-stone-500">{{ file.progress.speed.toFixed(1) }}x</span>
-            </template>
+              <template v-if="file.status === 'running' && file.progress">
+                <span class="text-xs text-stone-400">{{ file.progress.percent != null ? `${Math.round(file.progress.percent)}%` : "" }}</span>
+                <span v-if="file.progress.fps" class="text-xs text-stone-500">{{ file.progress.fps.toFixed(0) }}fps</span>
+                <span v-if="file.progress.speed" class="text-xs text-stone-500">{{ file.progress.speed.toFixed(1) }}x</span>
+              </template>
 
-            <template v-else-if="file.status === 'completed'">
-              <span class="text-xs text-emerald-400">completed</span>
-              <button
-                type="button"
-                class="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-stone-300 transition hover:border-amber-300/20 hover:bg-white/8"
-                @click="$emit('openOutputFile', file.id)"
-              >
-                Open
-              </button>
-            </template>
+              <template v-else-if="file.status === 'completed'">
+                <div class="flex min-w-0 flex-col items-end">
+                  <span class="text-xs text-emerald-400">completed</span>
+                  <span
+                    v-if="fileCompletionSummary(file)"
+                    class="max-w-[320px] truncate text-[11px] text-stone-500"
+                  >
+                    {{ fileCompletionSummary(file) }}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-stone-300 transition hover:border-amber-300/20 hover:bg-white/8"
+                  @click="$emit('openOutputFile', file.id)"
+                >
+                  Open
+                </button>
+              </template>
 
-            <template v-else-if="file.status === 'failed'">
-              <span class="text-xs text-rose-400">failed</span>
-            </template>
+              <template v-else-if="file.status === 'failed'">
+                <span class="text-xs text-rose-400">failed</span>
+              </template>
 
-            <template v-else>
-              <span class="text-xs text-stone-600">pending</span>
-            </template>
+              <template v-else>
+                <span class="text-xs text-stone-600">pending</span>
+              </template>
+            </div>
+
+            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5">
+              <div
+                class="h-full rounded-full transition-all duration-300"
+                :class="
+                  file.status === 'completed'
+                    ? 'bg-emerald-400'
+                    : file.status === 'failed'
+                      ? 'bg-rose-400'
+                      : file.status === 'running'
+                        ? 'bg-amber-400'
+                        : 'bg-stone-700'
+                "
+                :style="{ width: `${fileProgressPercent(file)}%` }"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -286,15 +370,22 @@ function fileStatusClass(file: SourceFile): string {
       <!-- Post-conversion actions -->
       <div
         v-if="batchProgress && (batchProgress.phase === 'completed' || batchProgress.phase === 'failed' || batchProgress.phase === 'cancelled')"
-        class="flex flex-wrap gap-2"
+        class="grid gap-3"
       >
-        <button
-          type="button"
-          class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8"
-          @click="$emit('openOutputFolder')"
-        >
-          Open output folder
-        </button>
+        <div class="rounded-2xl border border-white/5 bg-white/3 p-4">
+          <span class="text-xs font-medium tracking-wide text-stone-500 uppercase">Batch summary</span>
+          <p class="m-0 mt-1 text-sm text-stone-200">{{ batchCompletionSummary(files, batchProgress) }}</p>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-stone-100 transition hover:border-amber-300/20 hover:bg-white/8"
+            @click="$emit('openOutputFolder')"
+          >
+            Open output folder
+          </button>
+        </div>
       </div>
 
       <!-- Empty state -->

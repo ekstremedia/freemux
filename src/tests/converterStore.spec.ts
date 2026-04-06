@@ -1,12 +1,35 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDefaultProfile } from "@/domain/conversion";
+import { createDefaultProfile, createStarterProfiles } from "@/domain/conversion";
 import { createConverterStore } from "@/stores/useConverterStore";
 import type { DesktopClient } from "@/services/desktopClient";
-import type { ConversionProgress, ConversionResult } from "@/domain/media";
+import type { ConversionProgress, ConversionResult, EncoderOption } from "@/domain/media";
 
 function createClientStub(): DesktopClient {
   const profile = createDefaultProfile();
   let progressHandler: ((progress: ConversionProgress) => void) | null = null;
+  const encoders: EncoderOption[] = [
+    {
+      name: "libx264",
+      label: "libx264",
+      description: null,
+      mediaType: "video",
+      isHardwareAccelerated: false,
+    },
+    {
+      name: "h264_nvenc",
+      label: "h264_nvenc",
+      description: null,
+      mediaType: "video",
+      isHardwareAccelerated: true,
+    },
+    {
+      name: "aac",
+      label: "aac",
+      description: null,
+      mediaType: "audio",
+      isHardwareAccelerated: false,
+    },
+  ];
 
   return {
     chooseInputFile: async () => "/videos/source.mov",
@@ -14,6 +37,8 @@ function createClientStub(): DesktopClient {
     chooseFolder: async () => "/videos",
     chooseOutputFile: async () => "/videos/source.mp4",
     chooseOutputFolder: async () => "/videos/output",
+    chooseProfilesImportFile: async () => "/tmp/import-profiles.json",
+    chooseProfilesExportFile: async () => "/tmp/export-profiles.json",
     getThumbnail: async () => "data:image/jpeg;base64,/9j/fake",
     probeMedia: async (inputPath) => ({
       format: {
@@ -29,9 +54,15 @@ function createClientStub(): DesktopClient {
       ffmpeg: { available: true, source: "system-path", path: "/usr/bin/ffmpeg" },
       ffprobe: { available: true, source: "system-path", path: "/usr/bin/ffprobe" },
     }),
+    getAvailableEncoders: async () => encoders,
+    getFileSize: async () => 10_000_000,
     loadProfiles: async () => [profile],
     saveProfile: async (nextProfile) => nextProfile,
+    replaceProfiles: async (profiles) => profiles,
     deleteProfile: async () => undefined,
+    importProfiles: async () => [createDefaultProfile({ name: "Imported profile" })],
+    exportProfiles: async () => undefined,
+    getProfilesFilePath: async () => "/app-data/profiles.json",
     runConversion: async () => {
       progressHandler?.({
         phase: "running",
@@ -70,6 +101,22 @@ describe("converter store", () => {
     expect(store.state.files[0].outputPath).toBe("/videos/source.mp4");
     expect(store.state.files[0].probe?.format.path).toBe("/videos/source.mov");
     expect(store.state.selectedFileId).toBe(store.state.files[0].id);
+    expect(store.videoCodecOptions.value.some((codec) => codec.name === "h264_nvenc")).toBe(true);
+    expect(store.state.profilesFilePath).toBe("/app-data/profiles.json");
+  });
+
+  it("seeds starter profiles into profiles.json when none exist yet", async () => {
+    const client = createClientStub();
+    client.loadProfiles = async () => [];
+    client.replaceProfiles = vi.fn(async (profiles) => profiles);
+
+    const store = createConverterStore(client);
+    await store.initialize();
+
+    expect(client.replaceProfiles).toHaveBeenCalledTimes(1);
+    expect(client.replaceProfiles).toHaveBeenCalledWith(expect.any(Array));
+    expect(store.state.profiles).toHaveLength(createStarterProfiles().length);
+    expect(store.state.profiles[0].name).toBe("Resolve edit MOV (copy video + PCM audio tracks)");
   });
 
   it("supports adding multiple files", async () => {
@@ -231,5 +278,55 @@ describe("converter store", () => {
     await batchPromise;
 
     expect(store.state.isConverting).toBe(false);
+  });
+
+  it("discards unsaved profile edits when switching away and back", async () => {
+    const store = createConverterStore(createClientStub());
+    await store.initialize();
+
+    const originalProfileId = store.state.selectedProfileId!;
+    const originalCodec = store.currentProfile.value!.video.codec;
+
+    await store.duplicateCurrentProfile();
+    const duplicateProfileId = store.state.selectedProfileId!;
+
+    store.selectProfile(originalProfileId);
+    store.updateCurrentProfile({
+      ...store.currentProfile.value!,
+      video: {
+        ...store.currentProfile.value!.video,
+        codec: "h264_nvenc",
+      },
+    });
+
+    expect(store.currentProfile.value!.video.codec).toBe("h264_nvenc");
+
+    store.selectProfile(duplicateProfileId);
+    store.selectProfile(originalProfileId);
+
+    expect(store.currentProfile.value!.video.codec).toBe(originalCodec);
+    expect(
+      store.state.profiles.find((profile) => profile.id === originalProfileId)?.video.codec,
+    ).toBe(originalCodec);
+  });
+
+  it("imports and exports profiles through the shared JSON flow", async () => {
+    const client = createClientStub();
+    client.importProfiles = vi.fn(async () => [
+      createDefaultProfile({ id: "imported", name: "Instagram Reel 1080x1920 H.264 AAC" }),
+    ]);
+    client.exportProfiles = vi.fn(async () => undefined);
+
+    const store = createConverterStore(client);
+    await store.initialize();
+
+    await store.importProfiles();
+    expect(client.importProfiles).toHaveBeenCalledWith("/tmp/import-profiles.json");
+    expect(store.state.profiles[0].name).toBe("Instagram Reel 1080x1920 H.264 AAC");
+    expect(store.state.profileActionMessage).toContain("Imported 1 profile");
+
+    await store.exportProfiles();
+    expect(client.exportProfiles).toHaveBeenCalledWith("/tmp/export-profiles.json");
+    expect(store.state.profileActionMessage).toContain("Exported profiles");
   });
 });

@@ -1,7 +1,10 @@
 import { computed, reactive } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
+  FALLBACK_AUDIO_CODECS,
+  FALLBACK_VIDEO_CODECS,
   cloneProfile,
+  copyProfile,
   createDefaultProfile,
   createStarterProfiles,
   upsertProfile,
@@ -9,6 +12,7 @@ import {
 } from "@/domain/conversion";
 import type {
   BatchProgress,
+  EncoderOption,
   SourceFile,
   ToolingStatus,
 } from "@/domain/media";
@@ -22,7 +26,10 @@ interface ConverterState {
   outputFolder: string;
   profiles: ConversionProfile[];
   selectedProfileId: string | null;
+  selectedProfileDraft: ConversionProfile | null;
+  profilesFilePath: string | null;
   tooling: ToolingStatus | null;
+  availableEncoders: EncoderOption[];
   lastError: string | null;
   isConverting: boolean;
   isBatchRunning: boolean;
@@ -43,7 +50,10 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     outputFolder: "",
     profiles: [],
     selectedProfileId: null,
+    selectedProfileDraft: null,
+    profilesFilePath: null,
     tooling: null,
+    availableEncoders: [],
     lastError: null,
     isConverting: false,
     isBatchRunning: false,
@@ -56,7 +66,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
   );
 
   const currentProfile = computed(() =>
-    state.profiles.find((profile) => profile.id === state.selectedProfileId) ?? null,
+    state.selectedProfileDraft,
   );
 
   const commandPreview = computed(() => {
@@ -66,6 +76,14 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     }
     return buildFfmpegCommandPreview(file.inputPath, file.outputPath, currentProfile.value);
   });
+
+  const videoCodecOptions = computed(() =>
+    buildCodecOptions("video", state.availableEncoders, state.profiles.map((profile) => profile.video.codec)),
+  );
+
+  const audioCodecOptions = computed(() =>
+    buildCodecOptions("audio", state.availableEncoders, state.profiles.map((profile) => profile.audio.codec)),
+  );
 
   async function initialize() {
     if (!unsubscribeProgress) {
@@ -87,10 +105,20 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
       });
     }
 
-    const [tooling, profiles] = await Promise.all([client.getToolingStatus(), client.loadProfiles()]);
+    const [tooling, loadedProfiles, availableEncoders, profilesFilePath] = await Promise.all([
+      client.getToolingStatus(),
+      client.loadProfiles(),
+      client.getAvailableEncoders().catch(() => []),
+      client.getProfilesFilePath().catch(() => null),
+    ]);
+    const profiles = loadedProfiles.length
+      ? loadedProfiles
+      : await client.replaceProfiles(createStarterProfiles()).catch(() => createStarterProfiles());
     state.tooling = tooling;
-    state.profiles = profiles.length ? profiles : createStarterProfiles();
-    state.selectedProfileId = state.profiles[0]?.id ?? null;
+    state.profiles = profiles;
+    state.availableEncoders = availableEncoders;
+    state.profilesFilePath = profilesFilePath;
+    applySelectedProfile(state.profiles[0]?.id ?? null);
   }
 
   // --- File management ---
@@ -107,29 +135,54 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
       outputPath,
       probe: null,
       isProbing: false,
+      isGeneratingThumbnail: false,
       thumbnail: null,
       progress: null,
+      conversionStartedAt: null,
+      conversionCompletedAt: null,
+      outputSizeBytes: null,
       status: "pending",
     };
   }
 
+  function patchSourceFile(fileId: string, patch: Partial<SourceFile>) {
+    const fileIndex = state.files.findIndex((file) => file.id === fileId);
+    if (fileIndex === -1) {
+      return;
+    }
+
+    state.files[fileIndex] = {
+      ...state.files[fileIndex],
+      ...patch,
+    };
+  }
+
   async function probeFile(file: SourceFile) {
-    file.isProbing = true;
+    patchSourceFile(file.id, {
+      isProbing: true,
+      isGeneratingThumbnail: true,
+      thumbnail: null,
+    });
     try {
-      file.probe = await client.probeMedia(file.inputPath);
+      const probe = await client.probeMedia(file.inputPath);
+      patchSourceFile(file.id, { probe });
     } catch {
       // Probe failure is non-fatal; file stays in list without probe data
     } finally {
-      file.isProbing = false;
+      patchSourceFile(file.id, { isProbing: false });
     }
 
     // Generate thumbnail in background (non-blocking)
     client.getThumbnail(file.inputPath).then(
       (dataUrl) => {
-        file.thumbnail = dataUrl;
+        patchSourceFile(file.id, {
+          thumbnail: dataUrl,
+          isGeneratingThumbnail: false,
+        });
       },
       () => {
         // Thumbnail generation failure is non-fatal
+        patchSourceFile(file.id, { isGeneratingThumbnail: false });
       },
     );
   }
@@ -236,6 +289,9 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
 
   function applySelectedProfile(profileId: string | null) {
     state.selectedProfileId = profileId;
+    state.selectedProfileDraft = profileId
+      ? copyProfile(state.profiles.find((profile) => profile.id === profileId) ?? createDefaultProfile())
+      : null;
     rederiveOutputPaths();
   }
 
@@ -247,7 +303,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
   }
 
   function updateCurrentProfile(profile: ConversionProfile) {
-    state.profiles = upsertProfile(state.profiles, profile);
+    state.selectedProfileDraft = copyProfile(profile);
     state.profileActionMessage = null;
     rederiveOutputPaths();
   }
@@ -304,6 +360,43 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
       : "Deleted profile.";
   }
 
+  async function importProfiles() {
+    const filePath = await client.chooseProfilesImportFile();
+    if (!filePath) {
+      return;
+    }
+
+    const profiles = await client.importProfiles(filePath);
+    state.profiles = profiles;
+    applySelectedProfile(profiles[0]?.id ?? null);
+    state.profileActionMessage = `Imported ${profiles.length} profile${profiles.length === 1 ? "" : "s"} from JSON.`;
+  }
+
+  async function exportProfiles() {
+    const defaultPath = state.profilesFilePath
+      ? state.profilesFilePath.replace(/profiles\.json$/i, "freemux-profiles.json")
+      : "freemux-profiles.json";
+    const filePath = await client.chooseProfilesExportFile(defaultPath);
+    if (!filePath) {
+      return;
+    }
+
+    await client.exportProfiles(filePath);
+    state.profileActionMessage = `Exported profiles to ${filePath}.`;
+  }
+
+  async function openProfilesJson() {
+    const filePath = state.profilesFilePath ?? await client.getProfilesFilePath().catch(() => null);
+    if (!filePath) {
+      state.lastError = "Unable to locate profiles.json.";
+      return;
+    }
+
+    state.profilesFilePath = filePath;
+    await client.openPath(filePath);
+    state.profileActionMessage = "Opened profiles.json.";
+  }
+
   // --- Conversion ---
 
   async function runBatchConversion() {
@@ -326,6 +419,8 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
       currentFileIndex: 0,
       totalFiles: filesToProcess.length,
       overallPercent: 0,
+      startedAt: Date.now(),
+      completedAt: null,
     };
 
     // Reset all file statuses
@@ -333,6 +428,9 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
       activeBatchStatuses.set(file.id, "pending");
       file.status = "pending";
       file.progress = null;
+      file.conversionStartedAt = null;
+      file.conversionCompletedAt = null;
+      file.outputSizeBytes = null;
     }
 
     try {
@@ -345,6 +443,9 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
         state.batchProgress.currentFileIndex = i;
         activeBatchStatuses.set(file.id, "running");
         file.status = "running";
+        file.conversionStartedAt = Date.now();
+        file.conversionCompletedAt = null;
+        file.outputSizeBytes = null;
         file.progress = {
           phase: "running",
           percent: 0,
@@ -373,6 +474,8 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
 
           activeBatchStatuses.set(file.id, "completed");
           file.status = "completed";
+          file.conversionCompletedAt = Date.now();
+          file.outputSizeBytes = await client.getFileSize(file.outputPath).catch(() => null);
           file.progress = {
             ...(file.progress ?? {
               frame: null,
@@ -393,6 +496,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
 
           activeBatchStatuses.set(file.id, "failed");
           file.status = "failed";
+          file.conversionCompletedAt = Date.now();
           file.progress = {
             ...(file.progress ?? {
               percent: null,
@@ -422,8 +526,12 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
         state.batchProgress.overallPercent = anyFailed
           ? state.batchProgress.overallPercent
           : 100;
+        state.batchProgress.completedAt = Date.now();
       }
     } finally {
+      if (state.batchProgress && state.batchProgress.completedAt === null) {
+        state.batchProgress.completedAt = Date.now();
+      }
       state.isConverting = false;
       state.isBatchRunning = false;
       activeBatchFileIds = [];
@@ -448,7 +556,7 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
 
   async function openOutputFolder() {
     if (state.outputFolder) {
-      await client.revealInFolder(state.outputFolder);
+      await client.openPath(state.outputFolder);
     } else if (state.files.length > 0) {
       const firstCompleted = state.files.find((f) => f.status === "completed");
       if (firstCompleted) {
@@ -489,6 +597,8 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     currentFile,
     currentProfile,
     commandPreview,
+    videoCodecOptions,
+    audioCodecOptions,
     initialize,
     // File management
     addFiles,
@@ -509,6 +619,9 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     duplicateCurrentProfile,
     saveCurrentProfile,
     deleteProfile,
+    importProfiles,
+    exportProfiles,
+    openProfilesJson,
     // Conversion
     runBatchConversion,
     cancelConversion,
@@ -517,6 +630,56 @@ export function createConverterStore(client: DesktopClient = tauriDesktopClient)
     openOutputFile,
     dispose,
   };
+}
+
+function buildCodecOptions(
+  mediaType: EncoderOption["mediaType"],
+  availableEncoders: EncoderOption[],
+  activeCodecs: string[],
+): EncoderOption[] {
+  const fallbackNames = mediaType === "video" ? FALLBACK_VIDEO_CODECS : FALLBACK_AUDIO_CODECS;
+  const fallbackOptions = fallbackNames.map((name) => createFallbackEncoderOption(name, mediaType));
+  const discoveredOptions = availableEncoders.filter((encoder) => encoder.mediaType === mediaType);
+  const currentOptions = activeCodecs
+    .filter(Boolean)
+    .map((name) => createFallbackEncoderOption(name, mediaType));
+
+  return dedupeCodecOptions([...currentOptions, ...discoveredOptions, ...fallbackOptions]);
+}
+
+function createFallbackEncoderOption(
+  name: string,
+  mediaType: EncoderOption["mediaType"],
+): EncoderOption {
+  return {
+    name,
+    label: name,
+    description: null,
+    mediaType,
+    isHardwareAccelerated: /(_nvenc|_qsv|_vaapi|_videotoolbox|_amf)$/.test(name),
+  };
+}
+
+function dedupeCodecOptions(options: EncoderOption[]): EncoderOption[] {
+  const seen = new Set<string>();
+  return options
+    .filter((option) => {
+      if (seen.has(option.name)) {
+        return false;
+      }
+      seen.add(option.name);
+      return true;
+    })
+    .sort((left, right) => {
+      if (left.name === "copy") return -1;
+      if (right.name === "copy") return 1;
+      if (left.name === "none") return 1;
+      if (right.name === "none") return -1;
+      if (left.isHardwareAccelerated !== right.isHardwareAccelerated) {
+        return left.isHardwareAccelerated ? 1 : -1;
+      }
+      return left.label.localeCompare(right.label);
+    });
 }
 
 function createUniqueProfileName(baseName: string, profiles: ConversionProfile[]): string {
